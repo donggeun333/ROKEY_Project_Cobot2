@@ -2,6 +2,38 @@
 
 이 패키지는 멀티탭/볼트 스캔 결과를 point cloud로 저장하고, 후처리한 뒤, 정상 기준 PCD와 비교하는 작업을 담당한다.
 
+## 먼저 실행할 것
+
+아래 순서대로 켜야 한다.
+
+1. robot bringup
+2. realsense node
+3. static TF publisher
+
+```bash
+ros2 run tf2_ros static_transform_publisher \
+  --x 0.02 \
+  --y 0.075 \
+  --z 0.04 \
+  --roll -1.5708 \
+  --pitch -1.5708 \
+  --yaw 0.0 \
+  --frame-id link_6 \
+  --child-frame-id camera_link
+```
+
+4. `pipeline_node`
+5. `comparison_node`
+6. `scan_test`
+
+중요:
+
+- `pipeline_node`
+- `scan_test`
+- `comparison_node`
+
+이 세 노드는 모두 `-p object_type:=bolt` 또는 `-p object_type:=multitap` 파라미터를 반드시 맞춰서 실행해야 한다.
+
 ## 전체 흐름
 
 1. `pipeline_node.py`
