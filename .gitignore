@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# ROS 2 / colcon
+build/
+install/
+log/
+
+# Pointcloud runtime outputs
+pointcloud/data/pipeline/captures/
+pointcloud/data/pipeline/merged/
+pointcloud/data/pipeline/filtered/
+pointcloud/data/pipeline/comparison/
