@@ -1,0 +1,9 @@
+string test_path
+---
+bool success
+string message
+string output_dir
+string result_text
+float32 similarity
+float32 missing_ratio
+float32 added_ratio
