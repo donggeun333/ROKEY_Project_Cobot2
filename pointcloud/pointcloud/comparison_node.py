@@ -23,8 +23,14 @@ class PointCloudComparisonNode(Node):
         self.declare_parameter("object_type", "multitap")
         self.declare_parameter("filtered_dir", "data/pipeline/filtered")
         self.declare_parameter("output_dir", "data/pipeline/comparison")
-        self.declare_parameter("multitap_reference_path", "")
-        self.declare_parameter("bolt_reference_path", "")
+        self.declare_parameter(
+            "multitap_reference_path",
+            "data/pipeline/filtered/good_multitap.pcd",
+        )
+        self.declare_parameter(
+            "bolt_reference_path",
+            "data/pipeline/filtered/good_bolt.pcd",
+        )
         self.declare_parameter("use_roi", True)
         self.declare_parameter("multitap_roi_min", [0.28, 0.01, -0.03])
         self.declare_parameter("multitap_roi_max", [0.46, 0.20, 0.10])
