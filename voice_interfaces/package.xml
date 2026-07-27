@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <!-- 이 패키지는 코드 없이 .srv / .action 메시지 정의만 담는 "인터페이스 전용 패키지"입니다.
+       음성 인식 노드와 로봇 제어 노드가 서로 같은 메시지 타입을 import할 수 있도록
+       공통 패키지로 분리해두는 것이 일반적인 ROS2 관례입니다. -->
+  <name>voice_interfaces</name>
+  <version>0.0.1</version>
+  <description>음성 명령 인식(GetKeyword) 및 로봇 동작 지시(RobotCommand)용 커스텀 인터페이스</description>
+  <maintainer email="you@example.com">rokey</maintainer>
+  <license>Apache-2.0</license>
+
+  <!-- 메시지/서비스/액션 생성을 위해 필요한 빌드 도구 -->
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>rosidl_default_generators</buildtool_depend>
+
+  <!-- 런타임에 다른 노드에서 이 인터페이스를 사용할 때 필요 -->
+  <exec_depend>rosidl_default_runtime</exec_depend>
+
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
