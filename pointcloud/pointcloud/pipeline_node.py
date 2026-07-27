@@ -38,6 +38,9 @@ DEFAULT_CAPTURE_DIR = "data/pipeline/captures"
 DEFAULT_MERGED_DIR = "data/pipeline/merged"
 DEFAULT_FILTERED_DIR = "data/pipeline/filtered"
 DEFAULT_COMPARISON_SERVICE = "/pointcloud_comparison/compare"
+DEFAULT_SAVE_CAPTURE = False
+DEFAULT_SAVE_MERGED = False
+DEFAULT_SAVE_FILTERED = True
 OBJECT_ROI_BOUNDS = {
     "multitap": (
         np.array([0.28, 0.01, -0.03], dtype=np.float64),
@@ -113,14 +116,6 @@ def pointcloud2_to_arrays(message: PointCloud2) -> tuple[np.ndarray, np.ndarray]
 
     return points[valid], colors
 
-
-def load_point_cloud(path: Path) -> o3d.geometry.PointCloud:
-    cloud = o3d.io.read_point_cloud(str(path))
-    if len(cloud.points) == 0:
-        raise RuntimeError(f"Empty point cloud: {path}")
-    return cloud
-
-
 class PointCloudPipelineNode(Node):
     def __init__(self) -> None:
         super().__init__("pointcloud_pipeline")
@@ -139,6 +134,9 @@ class PointCloudPipelineNode(Node):
             self.get_string_param("filtered_dir", DEFAULT_FILTERED_DIR)
         ).resolve()
         self.capture_voxel_size = self.get_float_param("capture_voxel_size", 0.0)
+        self.save_capture = self.get_bool_param("save_capture", DEFAULT_SAVE_CAPTURE)
+        self.save_merged = self.get_bool_param("save_merged", DEFAULT_SAVE_MERGED)
+        self.save_filtered = self.get_bool_param("save_filtered", DEFAULT_SAVE_FILTERED)
         self.icp_voxel_size = self.get_float_param("icp_voxel_size", 0.002)
         self.normal_radius = self.get_float_param("normal_radius", 0.008)
         self.trigger_comparison_on_finalize = self.get_bool_param(
@@ -173,6 +171,8 @@ class PointCloudPipelineNode(Node):
         self.filtered_dir.mkdir(parents=True, exist_ok=True)
 
         self.latest_cloud: PointCloud2 | None = None
+        self.capture_count = 0
+        self.merged_cloud: o3d.geometry.PointCloud | None = None
         self.capture_paths: list[Path] = []
         self.last_merged_path: Path | None = None
         self.last_filtered_path: Path | None = None
@@ -381,46 +381,43 @@ class PointCloudPipelineNode(Node):
             ),
         )
 
-    def merge_capture_paths(self) -> o3d.geometry.PointCloud:
-        if len(self.capture_paths) < 2:
-            raise RuntimeError("At least two captured point clouds are required.")
+    def merge_into_accumulated_cloud(
+        self,
+        source_full: o3d.geometry.PointCloud,
+    ) -> None:
+        if self.merged_cloud is None:
+            self.merged_cloud = copy.deepcopy(source_full)
+            self.capture_count = 1
+            self.get_logger().info("Initialized merged cloud from first capture.")
+            return
 
-        merged_full = load_point_cloud(self.capture_paths[0])
+        source_down = self.preprocess_for_icp(source_full)
+        target_down = self.preprocess_for_icp(self.merged_cloud)
 
-        for index, source_path in enumerate(self.capture_paths[1:], start=1):
-            source_full = load_point_cloud(source_path)
-            source_down = self.preprocess_for_icp(source_full)
-            target_down = self.preprocess_for_icp(merged_full)
+        if len(source_down.points) < 3:
+            raise RuntimeError("New capture has fewer than 3 ICP points.")
+        if len(target_down.points) < 3:
+            raise RuntimeError("Merged target has fewer than 3 ICP points.")
 
-            if len(source_down.points) < 3:
-                raise RuntimeError(
-                    f"Capture {index + 1} has fewer than 3 ICP points: {source_path}"
-                )
-            if len(target_down.points) < 3:
-                raise RuntimeError("Merged target has fewer than 3 ICP points.")
-
-            result = self.run_icp(source_down, target_down)
-            if result.fitness < self.min_fitness:
-                raise RuntimeError(
-                    f"ICP fitness too low for {source_path.name}: {result.fitness:.4f}"
-                )
-            if result.inlier_rmse > self.max_rmse:
-                raise RuntimeError(
-                    f"ICP RMSE too high for {source_path.name}: {result.inlier_rmse:.6f}"
-                )
-
-            aligned_source = copy.deepcopy(source_full)
-            aligned_source.transform(result.transformation)
-            merged_full += aligned_source
-            merged_full = merged_full.voxel_down_sample(self.icp_voxel_size)
-
-            self.get_logger().info(
-                f"ICP merged {index}/{len(self.capture_paths) - 1}: "
-                f"{source_path.name}, fitness={result.fitness:.4f}, "
-                f"rmse={result.inlier_rmse:.6f}"
+        result = self.run_icp(source_down, target_down)
+        if result.fitness < self.min_fitness:
+            raise RuntimeError(
+                f"ICP fitness too low for capture {self.capture_count + 1}: {result.fitness:.4f}"
+            )
+        if result.inlier_rmse > self.max_rmse:
+            raise RuntimeError(
+                f"ICP RMSE too high for capture {self.capture_count + 1}: {result.inlier_rmse:.6f}"
             )
 
-        return merged_full
+        aligned_source = copy.deepcopy(source_full)
+        aligned_source.transform(result.transformation)
+        self.merged_cloud += aligned_source
+        self.merged_cloud = self.merged_cloud.voxel_down_sample(self.icp_voxel_size)
+        self.capture_count += 1
+        self.get_logger().info(
+            f"ICP merged capture {self.capture_count}: "
+            f"fitness={result.fitness:.4f}, rmse={result.inlier_rmse:.6f}"
+        )
 
     def postprocess_cloud(
         self,
@@ -473,21 +470,29 @@ class PointCloudPipelineNode(Node):
 
         try:
             cloud = self.cloud_from_latest_message()
-            timestamp = self.make_timestamp()
-            output_path = (
-                self.capture_dir
-                / f"capture_{timestamp}_{self.safe_frame_suffix()}.pcd"
-            )
-            saved = o3d.io.write_point_cloud(str(output_path), cloud)
-            if not saved:
-                raise RuntimeError(f"Failed to save {output_path}")
-
-            self.capture_paths.append(output_path)
+            self.merge_into_accumulated_cloud(cloud)
+            output_path = None
+            if self.save_capture:
+                timestamp = self.make_timestamp()
+                output_path = (
+                    self.capture_dir
+                    / f"capture_{timestamp}_{self.safe_frame_suffix()}.pcd"
+                )
+                saved = o3d.io.write_point_cloud(str(output_path), cloud)
+                if not saved:
+                    raise RuntimeError(f"Failed to save {output_path}")
+                self.capture_paths.append(output_path)
             response.success = True
-            response.message = str(output_path)
-            self.get_logger().info(
-                f"Captured {len(self.capture_paths)} cloud(s): {output_path}"
-            )
+            response.message = str(output_path) if output_path is not None else "captured_in_memory"
+            capture_count = self.capture_count
+            if output_path is not None:
+                self.get_logger().info(
+                    f"Captured {capture_count} cloud(s): {output_path}"
+                )
+            else:
+                self.get_logger().info(
+                    f"Captured {capture_count} cloud(s): saved_in_memory_only"
+                )
         except Exception as error:
             response.success = False
             response.message = f"Capture failed: {error}"
@@ -500,6 +505,8 @@ class PointCloudPipelineNode(Node):
 
         self.object_type = self.get_string_param("object_type", DEFAULT_OBJECT_TYPE)
         self.roi_min, self.roi_max = self.resolve_roi_bounds()
+        self.capture_count = 0
+        self.merged_cloud = None
         self.capture_paths.clear()
         self.last_merged_path = None
         self.last_filtered_path = None
@@ -559,27 +566,38 @@ class PointCloudPipelineNode(Node):
         del request
 
         try:
-            merged_cloud = self.merge_capture_paths()
+            if self.capture_count < 2 or self.merged_cloud is None:
+                raise RuntimeError("At least two captured point clouds are required.")
+
+            merged_cloud = copy.deepcopy(self.merged_cloud)
             filtered_cloud = self.postprocess_cloud(merged_cloud)
 
             timestamp = self.make_timestamp()
             merged_path = self.merged_dir / f"merged_icp_{timestamp}.pcd"
             filtered_path = self.filtered_dir / f"filtered_dbscan_{timestamp}.pcd"
 
-            merged_saved = o3d.io.write_point_cloud(str(merged_path), merged_cloud)
-            filtered_saved = o3d.io.write_point_cloud(str(filtered_path), filtered_cloud)
-            if not merged_saved:
-                raise RuntimeError(f"Failed to save {merged_path}")
-            if not filtered_saved:
-                raise RuntimeError(f"Failed to save {filtered_path}")
+            if self.save_merged:
+                merged_saved = o3d.io.write_point_cloud(str(merged_path), merged_cloud)
+                if not merged_saved:
+                    raise RuntimeError(f"Failed to save {merged_path}")
+                self.last_merged_path = merged_path
+            else:
+                self.last_merged_path = None
 
-            self.last_merged_path = merged_path
-            self.last_filtered_path = filtered_path
+            if self.save_filtered:
+                filtered_saved = o3d.io.write_point_cloud(str(filtered_path), filtered_cloud)
+                if not filtered_saved:
+                    raise RuntimeError(f"Failed to save {filtered_path}")
+                self.last_filtered_path = filtered_path
+            else:
+                raise RuntimeError("save_filtered must remain enabled for comparison.")
+
             self.trigger_comparison_async()
             response.success = True
             response.message = (
-                f"merged={merged_path}, filtered={filtered_path}, "
-                f"captures={len(self.capture_paths)}, "
+                f"merged={merged_path if self.save_merged else 'not_saved'}, "
+                f"filtered={filtered_path}, "
+                f"captures={self.capture_count}, "
                 f"comparison_triggered={self.trigger_comparison_on_finalize}"
             )
             self.get_logger().info(response.message)

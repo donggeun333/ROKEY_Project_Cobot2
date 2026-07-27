@@ -51,9 +51,11 @@
 - `robot_control/bolt_assemble_task.py`
   - 볼트 검출, 파지, 체결 task
   - YOLO + depth + TF + movej/movel 사용
+  - 작업 종료 시 홈 위치로 복귀
 - `robot_control/pointcloud_inspector_task.py`
   - pointcloud 스캔/비교 task
   - pointcloud 패키지의 reset/capture/finalize/compare 서비스 호출
+  - 작업 종료 시 홈 위치로 복귀
 - `robot_control/task_config.py`
   - 볼트 체결 포즈, 스캔 포즈, 토픽, 타임아웃, 서비스명 같은 공통 설정 모음
 
@@ -91,6 +93,9 @@
 3. `ros2 run voice_processing get_keyword`
 4. 필요 시 `ros2 launch pointcloud pipeline_with_comparison.launch.py`
 5. `ros2 launch robot_control voice_command_stack.launch.py`
+
+현재 동작 기준으로 볼트 체결과 pointcloud 검사 task는
+성공/실패와 관계없이 종료 시 홈 위치 복귀를 시도한다.
 
 이 launch가 같이 띄우는 것:
 

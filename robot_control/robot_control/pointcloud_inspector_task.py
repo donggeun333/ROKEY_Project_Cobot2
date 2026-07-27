@@ -18,6 +18,7 @@ from robot_control.task_config import (
     COMPARISON_NODE_NAME,
     FINALIZE_SERVICE,
     FINALIZE_TIMEOUT_SEC,
+    HOME_JOINT,
     OBJECT_TYPE_BOLT,
     OBJECT_TYPE_MULTITAP,
     POINTCLOUD_REFERENCE_PATH_BY_OBJECT,
@@ -89,6 +90,13 @@ def call_set_parameters(node: Node, client, client_name: str, parameters: list[P
             raise RuntimeError(f"{client_name} parameter update failed: {result.reason}")
 
 
+def return_to_home(node: Node) -> None:
+    from DSR_ROBOT2 import movej, mwait, posj
+
+    movej(posj(*HOME_JOINT), vel=POINTCLOUD_SCAN_VEL, acc=POINTCLOUD_SCAN_ACC)
+    mwait()
+
+
 def set_remote_pointcloud_config(node: Node, object_type: str) -> None:
     client_map = getattr(node, "_pointcloud_param_clients", None)
     if client_map is None:
@@ -146,6 +154,8 @@ def run_pointcloud_inspection(node: Node, object_type: str) -> tuple[bool, str]:
     if not wait_for_service(node, compare_client, COMPARE_SERVICE):
         return False, f"서비스 연결 실패: {COMPARE_SERVICE}"
 
+    success = False
+    message = ""
     try:
         set_remote_pointcloud_config(node, object_type)
 
@@ -196,8 +206,17 @@ def run_pointcloud_inspection(node: Node, object_type: str) -> tuple[bool, str]:
             COMPARE_TIMEOUT_SEC,
         )
         if not compare_response.success:
-            return False, compare_response.message
+            message = compare_response.message
+            return False, message
 
-        return True, compare_response.message
+        success = True
+        message = compare_response.message
+        return True, message
     except Exception as error:
-        return False, str(error)
+        message = str(error)
+        return False, message
+    finally:
+        try:
+            return_to_home(node)
+        except Exception as error:
+            node.get_logger().error(f"검사 종료 후 홈 복귀 실패: {error}")

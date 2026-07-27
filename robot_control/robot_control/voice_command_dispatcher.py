@@ -4,7 +4,7 @@ from rclpy.action import ActionClient
 
 from voice_interfaces.srv import GetKeyword
 from voice_interfaces.action import RobotCommand
-from robot_control.motion_interface import ROBOT_ID
+from robot_control.task_config import ROBOT_ID
 
 
 class VoiceCommandDispatcherNode(Node):

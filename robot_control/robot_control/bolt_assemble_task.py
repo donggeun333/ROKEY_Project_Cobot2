@@ -470,12 +470,6 @@ def execute_bolt_task(detector: BoltDetector, gripper: RG) -> None:
         if not fasten_bolt(gripper, hole_name, fasten_pose):
             return
 
-    try:
-        run_movej_with_wait(HOME_JOINT, MOVE_VEL, MOVE_ACC)
-    except Exception as error:
-        node.get_logger().error(f"작업 종료 후 홈 복귀 실패: {error}")
-        return
-
     node.get_logger().info("1, 4, 2, 3 순서의 체결 작업을 완료했습니다.")
 
 
@@ -527,6 +521,11 @@ def run_bolt_assemble(node: Node) -> bool:
     except Exception as error:
         runtime_node.get_logger().error(f"볼트 체결 시퀀스 실행 실패: {error}")
         return False
+    finally:
+        try:
+            run_movej_with_wait(HOME_JOINT, MOVE_VEL, MOVE_ACC)
+        except Exception as error:
+            runtime_node.get_logger().error(f"작업 종료 후 홈 복귀 실패: {error}")
 
 
 def main(args=None):

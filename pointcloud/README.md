@@ -6,8 +6,8 @@
 ## 현재 역할
 
 - `pipeline_node`
-  - PointCloud2 캡처 저장
-  - ICP 병합
+  - PointCloud2 캡처
+  - 캡처할 때마다 누적 ICP 병합
   - ROI crop, outlier 제거, DBSCAN
   - 최종 `filtered_dbscan_*.pcd` 생성
 - `comparison_node`
@@ -18,7 +18,8 @@
 
 1. `pipeline_with_comparison.launch.py`로 `pipeline_node`와 `comparison_node`를 실행한다.
 2. 스캔 실행기는 캡처를 여러 번 요청한다.
-3. `finalize`로 후처리 결과 PCD를 만든다.
+3. 각 capture 요청 시 새 점군을 현재 누적 점군에 바로 ICP 병합한다.
+4. `finalize`로 누적 점군의 후처리 결과 PCD를 만든다.
 4. `compare`로 기준 PCD와 비교한다.
 
 현재 음성 연동에서는 `robot_control/pointcloud_inspector_task.py`가
@@ -85,10 +86,15 @@ ros2 launch pointcloud pipeline_with_comparison.launch.py \
 
 ## 주요 출력
 
-- `data/pipeline/captures/capture_*.pcd`
-- `data/pipeline/merged/merged_icp_*.pcd`
 - `data/pipeline/filtered/filtered_dbscan_*.pcd`
 - `data/pipeline/comparison/.../metrics.json`
+
+현재 기본 저장 정책:
+
+- `capture_*.pcd` 저장 안 함
+- `merged_icp_*.pcd` 저장 안 함
+- `filtered_dbscan_*.pcd` 저장
+- comparison 결과 저장
 
 ## git에 같이 올릴 파일
 
