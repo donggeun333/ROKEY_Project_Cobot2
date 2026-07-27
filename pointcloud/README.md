@@ -1,14 +1,51 @@
-# PointCloud Pipeline README
+# Pointcloud Package README
 
-이 패키지는 멀티탭/볼트 스캔 결과를 point cloud로 저장하고, 후처리한 뒤, 정상 기준 PCD와 비교하는 작업을 담당한다.
+이 패키지는 볼트/멀티탭을 여러 시점에서 스캔한 뒤 point cloud를 후처리하고,
+정상 기준 PCD와 비교해서 3D 검사 결과를 만드는 역할을 담당한다.
 
-## 먼저 실행할 것
+## 역할 요약
 
-아래 순서대로 켜야 한다.
+- `pipeline_node`
+  - PointCloud2 입력을 받아 캡처 저장
+  - 여러 캡처를 ICP로 병합
+  - ROI crop + outlier 제거 + DBSCAN 수행
+  - 최종 `filtered_dbscan_*.pcd` 생성
+- `comparison_node`
+  - 후처리된 test PCD를 정상 기준 PCD와 voxel 비교
+  - 공통/누락/추가 영역 PCD와 `metrics.json` 저장
+
+## 현재 실행 구조
+
+수동 테스트 방식:
 
 1. robot bringup
 2. realsense node
-3. static TF publisher
+3. 필요 시 static TF publisher
+4. `pipeline_with_comparison.launch.py`
+5. 별도 스캔 실행기
+   - 예전 수동 방식: `scan_test.py`
+   - 현재 음성 연동 방식: `robot_control/pointcloud_inspector_task.py`
+
+음성 연동 방식에서는 `scan_test.py`를 직접 실행하지 않고,
+`robot_control` 패키지의 pointcloud inspection task가 같은 역할을 대신한다.
+
+## 기본 실행 명령
+
+멀티탭 검사:
+
+```bash
+ros2 launch pointcloud pipeline_with_comparison.launch.py \
+  object_type:=multitap
+```
+
+볼트 검사:
+
+```bash
+ros2 launch pointcloud pipeline_with_comparison.launch.py \
+  object_type:=bolt
+```
+
+필요 시 static TF:
 
 ```bash
 ros2 run tf2_ros static_transform_publisher \
@@ -22,82 +59,81 @@ ros2 run tf2_ros static_transform_publisher \
   --child-frame-id camera_link
 ```
 
-4. `pipeline_node`
-5. `comparison_node`
-6. `scan_test`
+## object_type
 
-중요:
+현재 지원:
 
-- `pipeline_node`
-- `scan_test`
-- `comparison_node`
+- `bolt`
+- `multitap`
 
-이 세 노드는 모두 `-p object_type:=bolt` 또는 `-p object_type:=multitap` 파라미터를 반드시 맞춰서 실행해야 한다.
+이 값은 pointcloud 노드 내부 ROI, 비교 기준 PCD, 스캔 포즈 선택에 영향을 준다.
 
-## 전체 흐름
+## 기준 PCD
 
-1. `pipeline_node.py`
-   - 카메라 PointCloud2를 받아 캡처
-   - 여러 캡처를 ICP로 병합
-   - ROI crop 수행
-   - DBSCAN으로 대상 cluster만 추출
-   - `filtered_dbscan_*.pcd` 저장
+기본 기준 PCD는 패키지 resource를 사용한다.
 
-2. `comparison_node.py`
-   - `pipeline_node`가 만든 `filtered_dbscan_*.pcd` 경로를 전달받음
-   - 정상 기준 PCD와 voxel 단위로 비교
-   - 공통/누락/추가 영역 PCD와 `metrics.json` 저장
+- `resource/good_bolt.pcd`
+- `resource/good_multitap.pcd`
 
-## 핵심 파일
+`comparison_node.py`는 기본적으로 이 두 파일을 reference로 사용한다.
+launch에서 다른 경로를 넘기면 그 값을 우선 사용한다.
+
+## 주요 파일 역할
 
 - `pointcloud/pipeline_node.py`
-  - 스캔, ICP 병합, ROI crop, DBSCAN 후처리 담당
+  - point cloud 캡처, 병합, 후처리, finalize 서비스 제공
 - `pointcloud/comparison_node.py`
-  - 후처리 결과 PCD와 기준 PCD 비교 담당
+  - 기준 PCD와의 비교 서비스 제공
 - `pointcloud/occupancy_compare.py`
-  - voxel 비교 알고리즘 구현
+  - voxel occupancy 비교 알고리즘 구현
+- `pointcloud/scan_test.py`
+  - 수동 movej 기반 스캔 테스트 스크립트
 - `launch/pipeline_with_comparison.launch.py`
   - `pipeline_node` + `comparison_node` 실행용 launch
-- `setup.py`
-  - `pipeline_node`, `comparison_node` console script 등록
-- `package.xml`
-  - `pointcloud` 패키지 의존성 정의
+- `resource/good_bolt.pcd`
+  - 기본 볼트 기준 PCD
+- `resource/good_multitap.pcd`
+  - 기본 멀티탭 기준 PCD
 
-## 커스텀 서비스
+## 서비스 구조
 
-비교 단계로 넘어갈 때는 ROS 기본 `Trigger` 대신 커스텀 서비스 사용.
+`pipeline_node.py`가 제공:
 
-- 파일: `../od_msg/srv/SrvPointCloudCompare.srv`
-- 역할:
-  - request: `test_path`
-  - response: `success`, `message`, `output_dir`, `result_text`, `similarity`, `missing_ratio`, `added_ratio`
+- `/pointcloud_pipeline/reset`
+- `/pointcloud_pipeline/capture`
+- `/pointcloud_pipeline/finalize`
 
-이 서비스가 필요한 이유:
+`comparison_node.py`가 제공:
 
-- `pipeline_node`가 방금 만든 `filtered_dbscan_*.pcd` 경로를
-- `comparison_node`에 정확히 전달하기 위해서
+- `/pointcloud_comparison/compare`
 
-즉, "최신 파일 추측"이 아니라 "이 파일을 비교하라"를 직접 넘긴다.
-
-## 관련 인터페이스 패키지
-
-커스텀 서비스는 `od_msg` 패키지에 정의되어 있다.
+비교 서비스 타입:
 
 - `../od_msg/srv/SrvPointCloudCompare.srv`
-- `../od_msg/CMakeLists.txt`
-- `../od_msg/package.xml`
 
-git 업로드 시에는 `pointcloud` 패키지 변경분과 함께 `od_msg`의 위 3개 파일도 같이 포함해야 한다.
+request:
+
+- `test_path`
+
+response:
+
+- `success`
+- `message`
+- `output_dir`
+- `result_text`
+- `similarity`
+- `missing_ratio`
+- `added_ratio`
 
 ## 출력 파일
 
-`pipeline_node.py` 출력:
+pipeline 출력:
 
 - `data/pipeline/captures/capture_*.pcd`
 - `data/pipeline/merged/merged_icp_*.pcd`
 - `data/pipeline/filtered/filtered_dbscan_*.pcd`
 
-`comparison_node.py` 출력:
+comparison 출력:
 
 - `data/pipeline/comparison/<test_name>_<timestamp>/common_voxels.pcd`
 - `data/pipeline/comparison/<test_name>_<timestamp>/missing_voxels.pcd`
@@ -105,27 +141,31 @@ git 업로드 시에는 `pointcloud` 패키지 변경분과 함께 `od_msg`의 �
 - `data/pipeline/comparison/<test_name>_<timestamp>/union_voxels.pcd`
 - `data/pipeline/comparison/<test_name>_<timestamp>/metrics.json`
 
-## 실행에 필요한 구성
+## 현재 남겨둔 파일과 참고 파일
 
-- PointCloud2 입력 토픽
-- 필요 시 TF (`camera frame -> save_frame`)
-- 정상 기준 PCD 경로
-  - `multitap_reference_path`
-  - 필요 시 `bolt_reference_path`
+현재 음성 연동에서 직접 쓰는 핵심 파일:
 
-## 최소 실행 노드
+- `pointcloud/pipeline_node.py`
+- `pointcloud/comparison_node.py`
+- `pointcloud/occupancy_compare.py`
+- `launch/pipeline_with_comparison.launch.py`
 
-- `pointcloud_pipeline`
-- `pointcloud_comparison`
+참고/실험용 파일:
 
-필요하면 여기에 `static_transform_publisher`를 launch에 같이 포함한다.
+- `pointcloud/scan_test.py`
+- `pointcloud/capture_node.py`
+- `pointcloud/merger_node.py`
+- `pointcloud/merge_saved_node.py`
+- 기타 mesh/smoothing/test 스크립트
 
-## git에 올릴 때 보통 포함할 파일
+## git에 같이 올릴 파일
 
 - `pointcloud/pointcloud/pipeline_node.py`
 - `pointcloud/pointcloud/comparison_node.py`
 - `pointcloud/pointcloud/occupancy_compare.py`
 - `pointcloud/launch/pipeline_with_comparison.launch.py`
+- `pointcloud/resource/good_bolt.pcd`
+- `pointcloud/resource/good_multitap.pcd`
 - `pointcloud/setup.py`
 - `pointcloud/package.xml`
 - `pointcloud/README.md`

@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 from glob import glob
 import os
 
-package_name = 'robot_control'
+package_name = 'voice_processing'
 
 setup(
     name=package_name,
@@ -12,7 +12,8 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        (os.path.join('share', package_name, 'resource'), glob('resource/*')),
+
+        (os.path.join('share', package_name, 'resource'), glob('resource/*') + ['resource/.env']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -27,13 +28,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'inspection_motion = robot_control.inspection_motion:main',
-            'inspection_orchestrator = robot_control.inspection_orchestrator:main',
-            'pick_bolt = robot_control.bolt_assemble_task:main',
-            'robot_command_server = robot_control.robot_command_server:main',
-            'robot_control = robot_control.robot_control:main',
-            'voice_command_dispatcher = robot_control.voice_command_dispatcher:main',
-            'grasp_visualizer_node = robot_control.grasp_visualizer_node:main',
+            'get_keyword = voice_processing.get_keyword_node:main',
         ],
     },
 )

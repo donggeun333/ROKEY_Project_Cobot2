@@ -219,7 +219,8 @@ class PointCloudPipelineNode(Node):
         )
 
     def get_param(self, name: str, default):
-        self.declare_parameter(name, default)
+        if not self.has_parameter(name):
+            self.declare_parameter(name, default)
         return self.get_parameter(name).value
 
     def get_string_param(self, name: str, default: str) -> str:
@@ -484,12 +485,14 @@ class PointCloudPipelineNode(Node):
     def handle_reset(self, request, response):
         del request
 
+        self.object_type = self.get_string_param("object_type", DEFAULT_OBJECT_TYPE)
+        self.roi_min, self.roi_max = self.resolve_roi_bounds()
         self.capture_paths.clear()
         self.last_merged_path = None
         self.last_filtered_path = None
 
         response.success = True
-        response.message = "Pipeline session reset."
+        response.message = f"Pipeline session reset. object_type={self.object_type}"
         self.get_logger().info(response.message)
         return response
 

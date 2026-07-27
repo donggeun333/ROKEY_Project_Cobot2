@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+from ament_index_python.packages import get_package_share_directory
 import numpy as np
 from od_msg.srv import SrvPointCloudCompare
 import rclpy
@@ -15,12 +16,13 @@ from .occupancy_compare import (
     save_comparison_outputs,
 )
 
+POINTCLOUD_SHARE_DIR = Path(get_package_share_directory("pointcloud")).resolve()
 DEFAULT_OBJECT_TYPE = "multitap"
 DEFAULT_FILTERED_DIR = "data/pipeline/filtered"
 DEFAULT_OUTPUT_DIR = "data/pipeline/comparison"
 DEFAULT_REFERENCE_BY_OBJECT = {
-    "multitap": "data/pipeline/filtered/good_multitap.pcd",
-    "bolt": "data/pipeline/filtered/good_bolt.pcd",
+    "multitap": str(POINTCLOUD_SHARE_DIR / "resource" / "good_multitap.pcd"),
+    "bolt": str(POINTCLOUD_SHARE_DIR / "resource" / "good_bolt.pcd"),
 }
 OBJECT_ROI_BOUNDS = {
     "multitap": (
@@ -74,7 +76,8 @@ class PointCloudComparisonNode(Node):
         )
 
     def get_param(self, name: str, default):
-        self.declare_parameter(name, default)
+        if not self.has_parameter(name):
+            self.declare_parameter(name, default)
         return self.get_parameter(name).value
 
     def get_string_param(self, name: str, default: str) -> str:
@@ -138,6 +141,8 @@ class PointCloudComparisonNode(Node):
 
     def handle_compare(self, request, response):
         try:
+            self.object_type = self.get_string_param("object_type", DEFAULT_OBJECT_TYPE)
+            self.config.roi_min, self.config.roi_max = self.resolve_roi_bounds()
             reference_path = self.resolve_reference_path()
             test_path = Path(request.test_path).resolve()
             if not request.test_path.strip():

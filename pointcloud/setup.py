@@ -1,5 +1,6 @@
 from setuptools import find_packages, setup
 from glob import glob
+import os
 
 
 package_name = "pointcloud"
@@ -16,6 +17,7 @@ setup(
         ),
         ("share/" + package_name, ["package.xml"]),
         ("share/" + package_name + "/launch", glob("launch/*.py")),
+        (os.path.join("share", package_name, "resource"), glob("resource/*")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,

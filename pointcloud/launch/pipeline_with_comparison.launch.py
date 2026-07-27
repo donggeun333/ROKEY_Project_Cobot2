@@ -32,7 +32,7 @@ def generate_launch_description() -> LaunchDescription:
                 "object_type": object_type,
                 "input_topic": input_topic,
                 "save_frame": save_frame,
-                "trigger_comparison_on_finalize": True,
+                "trigger_comparison_on_finalize": False,
                 "comparison_service": "/pointcloud_comparison/compare",
             }
         ],
