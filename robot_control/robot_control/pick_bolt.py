@@ -31,16 +31,30 @@ TOOLCHARGER_PORT = "502"
 # 로봇 기본 설정 -------------------------
 ROBOT_ID = "dsr01"
 ROBOT_MODEL = "m0609"
-MODEL_PATH = "/home/dg/cobot_ws/src/cobot2_ws/robot_control/resource/D-1.pt"
+MODEL_PATH = "/home/dg/cobot_ws/src/cobot2_ws/robot_control/resource/bolt.pt"
+COLOR_TOPIC = "/camera/camera/color/image_raw"
+DEPTH_TOPIC = "/camera/camera/aligned_depth_to_color/image_raw"
+CAMERA_INFO_TOPIC = "/camera/camera/color/camera_info"
+CAMERA_LINK_FRAME = "camera_link"
+BASE_FRAME = "base_link"
+TARGET_LABEL = "bolt"
+DETECT_CONFIDENCE = 0.5
+DETECT_TIMEOUT_SEC = 5.0
+TF_TIMEOUT_SEC = 1.0
+DEPTH_UNIT_SCALE = 0.001
+SHOW_DETECTION_WINDOW = True
+DETECTION_WINDOW_NAME = "bolt_detection"
+MONITOR_DETECTION_ONLY = False
+LOG_INTERVAL_SEC = 1.0
 MOVE_VEL = 100.0
 MOVE_ACC = 45.0
 SLOW_MOVE_VEL = 10.0
 SLOW_MOVE_ACC = 10.0
 APPROACH_Z_OFFSET_MM = 50.0
 LIFT_Z_OFFSET_MM = 80.0
-PICK_X_OFFSET_MM = 4.0
+PICK_X_OFFSET_MM = 6.0
 PICK_Y_OFFSET_MM = 8.0
-PICK_Z_OFFSET_MM = 5.0
+PICK_Z_OFFSET_MM = 4.5
 FASTEN_APPROACH_Z_OFFSET_MM = 50.0
 FASTEN_LIFT_Z_OFFSET_MM = 80.0
 HOME_JOINT: Final[list[float]] = [0.0, 0.0, 90.0, 0.0, 90.0, 0.0]
@@ -90,6 +104,7 @@ FASTEN_SEQUENCE: Final[list[tuple[str, list[float]]]] = [
     ("2", FASTEN_POSE_2),
     ("3", FASTEN_POSE_3),
 ]
+DETECT_START_ENABLED = True
 
 DR_init.__dsr__id = ROBOT_ID
 DR_init.__dsr__model = ROBOT_MODEL
@@ -154,68 +169,24 @@ class BoltDetector:
         self.color_stamp = None
         self.color_frame_id: str | None = None
 
-        self.node.declare_parameter(
-            "bolt_model_path",
-            MODEL_PATH,
-        )
-        self.node.declare_parameter(
-            "color_topic",
-            "/camera/camera/color/image_raw",
-        )
-        self.node.declare_parameter(
-            "depth_topic",
-            "/camera/camera/aligned_depth_to_color/image_raw",
-        )
-        self.node.declare_parameter(
-            "camera_info_topic",
-            "/camera/camera/color/camera_info",
-        )
-        self.node.declare_parameter("camera_link_frame", "camera_link")
-        self.node.declare_parameter("base_frame", "base_link")
-        self.node.declare_parameter("target_label", "bolt")
-        self.node.declare_parameter("detect_confidence", 0.5)
-        self.node.declare_parameter("detect_timeout_sec", 5.0)
-        self.node.declare_parameter("tf_timeout_sec", 1.0)
-        self.node.declare_parameter("depth_unit_scale", 0.001)
-        self.node.declare_parameter("show_detection_window", True)
-        self.node.declare_parameter("detection_window_name", "bolt_detection")
-        self.node.declare_parameter("monitor_detection_only", True)
-        self.node.declare_parameter("log_interval_sec", 1.0)
-
-        model_path = Path(self.node.get_parameter("bolt_model_path").value).resolve()
+        model_path = Path(MODEL_PATH).resolve()
         if not model_path.exists():
             raise FileNotFoundError(f"YOLO model not found: {model_path}")
 
-        self.color_topic = str(self.node.get_parameter("color_topic").value)
-        self.depth_topic = str(self.node.get_parameter("depth_topic").value)
-        self.camera_info_topic = str(self.node.get_parameter("camera_info_topic").value)
-        self.camera_link_frame = str(
-            self.node.get_parameter("camera_link_frame").value
-        )
-        self.base_frame = str(self.node.get_parameter("base_frame").value)
-        self.target_label = str(self.node.get_parameter("target_label").value).strip()
-        self.detect_confidence = float(
-            self.node.get_parameter("detect_confidence").value
-        )
-        self.detect_timeout_sec = float(
-            self.node.get_parameter("detect_timeout_sec").value
-        )
-        self.tf_timeout_sec = float(self.node.get_parameter("tf_timeout_sec").value)
-        self.depth_unit_scale = float(
-            self.node.get_parameter("depth_unit_scale").value
-        )
-        self.show_detection_window = bool(
-            self.node.get_parameter("show_detection_window").value
-        )
-        self.detection_window_name = str(
-            self.node.get_parameter("detection_window_name").value
-        )
-        self.monitor_detection_only = bool(
-            self.node.get_parameter("monitor_detection_only").value
-        )
-        self.log_interval_sec = float(
-            self.node.get_parameter("log_interval_sec").value
-        )
+        self.color_topic = COLOR_TOPIC
+        self.depth_topic = DEPTH_TOPIC
+        self.camera_info_topic = CAMERA_INFO_TOPIC
+        self.camera_link_frame = CAMERA_LINK_FRAME
+        self.base_frame = BASE_FRAME
+        self.target_label = TARGET_LABEL
+        self.detect_confidence = DETECT_CONFIDENCE
+        self.detect_timeout_sec = DETECT_TIMEOUT_SEC
+        self.tf_timeout_sec = TF_TIMEOUT_SEC
+        self.depth_unit_scale = DEPTH_UNIT_SCALE
+        self.show_detection_window = SHOW_DETECTION_WINDOW
+        self.detection_window_name = DETECTION_WINDOW_NAME
+        self.monitor_detection_only = MONITOR_DETECTION_ONLY
+        self.log_interval_sec = LOG_INTERVAL_SEC
         self.last_logged_at = 0.0
 
         self.model = YOLO(str(model_path))
@@ -506,22 +477,18 @@ def detect_bolt(detector: BoltDetector) -> list[float] | None:
 def move_to_detect_start_pose() -> bool:
     node = get_robot_node()
 
-    detect_start_enabled = bool(
-        node.get_parameter("detect_start_enabled").value
-    )
-    if not detect_start_enabled:
+    if not DETECT_START_ENABLED:
         return True
 
-    detect_start_pose = list(node.get_parameter("detect_start_pose").value)
-    if len(detect_start_pose) != 6:
+    if len(DETECT_START_POSE) != 6:
         node.get_logger().error("detect_start_pose는 길이 6의 task 좌표여야 합니다.")
         return False
 
     try:
         node.get_logger().info(
-            f"탐지 시작 전 관측 포즈로 이동합니다: {detect_start_pose}"
+            f"탐지 시작 전 관측 포즈로 이동합니다: {DETECT_START_POSE}"
         )
-        run_movel_with_wait(detect_start_pose, MOVE_VEL, MOVE_ACC)
+        run_movel_with_wait(DETECT_START_POSE, MOVE_VEL, MOVE_ACC)
     except Exception as error:
         node.get_logger().error(f"관측 포즈 이동 실패: {error}")
         return False
@@ -559,27 +526,61 @@ def execute_bolt_task(detector: BoltDetector, gripper: RG) -> None:
     node.get_logger().info("1, 4, 2, 3 순서의 체결 작업을 완료했습니다.")
 
 
+def prepare_bolt_runtime(node: Node) -> tuple[BoltDetector, RG]:
+    """
+    볼트 체결에 필요한 detector/gripper를 노드 생명주기 동안 1회만 초기화하고 재사용한다.
+    같은 노드에 구독자를 중복 생성하지 않기 위한 캐시 계층이다.
+    """
+    detector = getattr(node, "_bolt_detector", None)
+    gripper = getattr(node, "_bolt_gripper", None)
+    resources_ready = getattr(node, "_bolt_runtime_ready", False)
+
+    if detector is not None and gripper is not None and resources_ready:
+        return detector, gripper
+
+    detector = BoltDetector(node)
+    gripper = RG(GRIPPER_NAME, TOOLCHARGER_IP, TOOLCHARGER_PORT)
+
+    from DSR_ROBOT2 import set_tcp, set_tool
+
+    set_tool("Tool Weight")
+    set_tcp("GripperDA_v1")
+
+    setattr(node, "_bolt_detector", detector)
+    setattr(node, "_bolt_gripper", gripper)
+    setattr(node, "_bolt_runtime_ready", True)
+    return detector, gripper
+
+
+def run_bolt_assemble(node: Node) -> bool:
+    """
+    외부 노드(예: robot_command 액션 서버)에서 볼트 체결 시퀀스를 재사용할 수 있도록 감싼다.
+    성공 시 True, 중간 실패나 예외 발생 시 False를 반환한다.
+    """
+    runtime_node = node
+
+    DR_init.__dsr__node = runtime_node
+
+    try:
+        from DSR_ROBOT2 import set_tcp, set_tool  # noqa: F401
+    except ImportError as error:
+        runtime_node.get_logger().error(f"DSR_ROBOT2 import 실패: {error}")
+        return False
+
+    try:
+        detector, gripper = prepare_bolt_runtime(runtime_node)
+        execute_bolt_task(detector, gripper)
+        return True
+    except Exception as error:
+        runtime_node.get_logger().error(f"볼트 체결 시퀀스 실행 실패: {error}")
+        return False
+
+
 def main(args=None):
     rclpy.init(args=args)
     node = rclpy.create_node("pick_bolt_node", namespace=ROBOT_ID)
-    DR_init.__dsr__node = node
-    node.declare_parameter("detect_start_enabled", True)
-    node.declare_parameter("detect_start_pose", DETECT_START_POSE)
-
     try:
-        from DSR_ROBOT2 import set_tcp, set_tool
-    except ImportError as error:
-        node.get_logger().error(f"DSR_ROBOT2 import 실패: {error}")
-        node.destroy_node()
-        rclpy.shutdown()
-        return
-
-    try:
-        detector = BoltDetector(node)
-        gripper = RG(GRIPPER_NAME, TOOLCHARGER_IP, TOOLCHARGER_PORT)
-        set_tool("Tool Weight")
-        set_tcp("GripperDA_v1")
-        execute_bolt_task(detector, gripper)
+        run_bolt_assemble(node)
     except KeyboardInterrupt:
         node.get_logger().warning("사용자에 의해 작업이 중단되었습니다.")
     finally:
