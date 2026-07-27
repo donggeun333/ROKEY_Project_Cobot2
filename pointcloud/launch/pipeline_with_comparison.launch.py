@@ -38,6 +38,23 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
+    static_tf_node = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="pointcloud_camera_static_tf",
+        output="screen",
+        arguments=[
+            "--x", "0.02",
+            "--y", "0.075",
+            "--z", "0.04",
+            "--roll", "-1.5708",
+            "--pitch", "-1.5708",
+            "--yaw", "0.0",
+            "--frame-id", "link_6",
+            "--child-frame-id", "camera_link",
+        ],
+    )
+
     comparison_node = Node(
         package="pointcloud",
         executable="comparison_node",
@@ -52,4 +69,4 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
-    return LaunchDescription(arguments + [pipeline_node, comparison_node])
+    return LaunchDescription(arguments + [static_tf_node, pipeline_node, comparison_node])
