@@ -15,57 +15,45 @@ from .occupancy_compare import (
     save_comparison_outputs,
 )
 
+DEFAULT_OBJECT_TYPE = "multitap"
+DEFAULT_FILTERED_DIR = "data/pipeline/filtered"
+DEFAULT_OUTPUT_DIR = "data/pipeline/comparison"
+DEFAULT_REFERENCE_BY_OBJECT = {
+    "multitap": "data/pipeline/filtered/good_multitap.pcd",
+    "bolt": "data/pipeline/filtered/good_bolt.pcd",
+}
+OBJECT_ROI_BOUNDS = {
+    "multitap": (
+        np.array([0.28, 0.01, -0.03], dtype=np.float64),
+        np.array([0.46, 0.20, 0.10], dtype=np.float64),
+    ),
+    "bolt": (
+        np.array([0.28, -0.20, -0.03], dtype=np.float64),
+        np.array([0.46, 0.00, 0.10], dtype=np.float64),
+    ),
+}
+
 
 class PointCloudComparisonNode(Node):
     def __init__(self) -> None:
         super().__init__("pointcloud_comparison")
 
-        self.declare_parameter("object_type", "multitap")
-        self.declare_parameter("filtered_dir", "data/pipeline/filtered")
-        self.declare_parameter("output_dir", "data/pipeline/comparison")
-        self.declare_parameter(
-            "multitap_reference_path",
-            "data/pipeline/filtered/good_multitap.pcd",
-        )
-        self.declare_parameter(
-            "bolt_reference_path",
-            "data/pipeline/filtered/good_bolt.pcd",
-        )
-        self.declare_parameter("use_roi", True)
-        self.declare_parameter("multitap_roi_min", [0.28, 0.01, -0.03])
-        self.declare_parameter("multitap_roi_max", [0.46, 0.20, 0.10])
-        self.declare_parameter("bolt_roi_min", [0.28, -0.20, -0.03])
-        self.declare_parameter("bolt_roi_max", [0.46, 0.00, 0.10])
-        self.declare_parameter("voxel_size", 0.003)
-        self.declare_parameter("neighbor_tolerance", 1)
-        self.declare_parameter("min_similarity", 0.85)
-        self.declare_parameter("max_missing_ratio", 0.10)
-        self.declare_parameter("max_added_ratio", 0.10)
-
-        self.object_type = str(self.get_parameter("object_type").value).strip().lower()
-        self.filtered_dir = Path(self.get_parameter("filtered_dir").value).resolve()
-        self.output_dir = Path(self.get_parameter("output_dir").value).resolve()
-        self.reference_by_object = {
-            "multitap": str(self.get_parameter("multitap_reference_path").value).strip(),
-            "bolt": str(self.get_parameter("bolt_reference_path").value).strip(),
-        }
-        self.roi_by_object = {
-            "multitap": (
-                np.array(self.get_parameter("multitap_roi_min").value, dtype=np.float64),
-                np.array(self.get_parameter("multitap_roi_max").value, dtype=np.float64),
-            ),
-            "bolt": (
-                np.array(self.get_parameter("bolt_roi_min").value, dtype=np.float64),
-                np.array(self.get_parameter("bolt_roi_max").value, dtype=np.float64),
-            ),
-        }
+        self.object_type = self.get_string_param("object_type", DEFAULT_OBJECT_TYPE)
+        self.filtered_dir = Path(
+            self.get_string_param("filtered_dir", DEFAULT_FILTERED_DIR)
+        ).resolve()
+        self.output_dir = Path(
+            self.get_string_param("output_dir", DEFAULT_OUTPUT_DIR)
+        ).resolve()
+        self.reference_by_object = self.build_reference_by_object()
+        self.roi_by_object = self.build_roi_by_object()
         self.config = ComparisonConfig(
-            voxel_size=float(self.get_parameter("voxel_size").value),
-            neighbor_tolerance=int(self.get_parameter("neighbor_tolerance").value),
-            min_similarity=float(self.get_parameter("min_similarity").value),
-            max_missing_ratio=float(self.get_parameter("max_missing_ratio").value),
-            max_added_ratio=float(self.get_parameter("max_added_ratio").value),
-            use_roi=bool(self.get_parameter("use_roi").value),
+            voxel_size=self.get_float_param("voxel_size", 0.003),
+            neighbor_tolerance=self.get_int_param("neighbor_tolerance", 1),
+            min_similarity=self.get_float_param("min_similarity", 0.85),
+            max_missing_ratio=self.get_float_param("max_missing_ratio", 0.10),
+            max_added_ratio=self.get_float_param("max_added_ratio", 0.10),
+            use_roi=self.get_bool_param("use_roi", True),
             roi_min=self.resolve_roi_bounds()[0],
             roi_max=self.resolve_roi_bounds()[1],
         )
@@ -84,6 +72,43 @@ class PointCloudComparisonNode(Node):
             f"object_type={self.object_type}, filtered_dir={self.filtered_dir}, "
             f"output_dir={self.output_dir}, service=~/compare"
         )
+
+    def get_param(self, name: str, default):
+        self.declare_parameter(name, default)
+        return self.get_parameter(name).value
+
+    def get_string_param(self, name: str, default: str) -> str:
+        return str(self.get_param(name, default)).strip()
+
+    def get_float_param(self, name: str, default: float) -> float:
+        return float(self.get_param(name, default))
+
+    def get_int_param(self, name: str, default: int) -> int:
+        return int(self.get_param(name, default))
+
+    def get_bool_param(self, name: str, default: bool) -> bool:
+        return bool(self.get_param(name, default))
+
+    def get_array_param(self, name: str, default: np.ndarray) -> np.ndarray:
+        return np.array(self.get_param(name, default.tolist()), dtype=np.float64)
+
+    def build_reference_by_object(self) -> dict[str, str]:
+        return {
+            object_type: self.get_string_param(
+                f"{object_type}_reference_path",
+                default_path,
+            )
+            for object_type, default_path in DEFAULT_REFERENCE_BY_OBJECT.items()
+        }
+
+    def build_roi_by_object(self) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+        return {
+            object_type: (
+                self.get_array_param(f"{object_type}_roi_min", roi_min),
+                self.get_array_param(f"{object_type}_roi_max", roi_max),
+            )
+            for object_type, (roi_min, roi_max) in OBJECT_ROI_BOUNDS.items()
+        }
 
     def resolve_roi_bounds(self) -> tuple[np.ndarray, np.ndarray]:
         if self.object_type not in self.roi_by_object:

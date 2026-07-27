@@ -10,10 +10,6 @@ def generate_launch_description() -> LaunchDescription:
     bolt_reference_path = LaunchConfiguration("bolt_reference_path")
     input_topic = LaunchConfiguration("input_topic")
     save_frame = LaunchConfiguration("save_frame")
-    capture_dir = LaunchConfiguration("capture_dir")
-    merged_dir = LaunchConfiguration("merged_dir")
-    filtered_dir = LaunchConfiguration("filtered_dir")
-    comparison_dir = LaunchConfiguration("comparison_dir")
 
     arguments = [
         DeclareLaunchArgument("object_type", default_value="multitap"),
@@ -24,22 +20,6 @@ def generate_launch_description() -> LaunchDescription:
             default_value="/camera/camera/depth/color/points",
         ),
         DeclareLaunchArgument("save_frame", default_value="base_link"),
-        DeclareLaunchArgument(
-            "capture_dir",
-            default_value="data/pipeline/captures",
-        ),
-        DeclareLaunchArgument(
-            "merged_dir",
-            default_value="data/pipeline/merged",
-        ),
-        DeclareLaunchArgument(
-            "filtered_dir",
-            default_value="data/pipeline/filtered",
-        ),
-        DeclareLaunchArgument(
-            "comparison_dir",
-            default_value="data/pipeline/comparison",
-        ),
     ]
 
     pipeline_node = Node(
@@ -52,9 +32,6 @@ def generate_launch_description() -> LaunchDescription:
                 "object_type": object_type,
                 "input_topic": input_topic,
                 "save_frame": save_frame,
-                "capture_dir": capture_dir,
-                "merged_dir": merged_dir,
-                "filtered_dir": filtered_dir,
                 "trigger_comparison_on_finalize": True,
                 "comparison_service": "/pointcloud_comparison/compare",
             }
@@ -69,8 +46,6 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[
             {
                 "object_type": object_type,
-                "filtered_dir": filtered_dir,
-                "output_dir": comparison_dir,
                 "multitap_reference_path": multitap_reference_path,
                 "bolt_reference_path": bolt_reference_path,
             }

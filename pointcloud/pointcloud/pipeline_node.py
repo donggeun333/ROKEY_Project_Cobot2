@@ -31,6 +31,24 @@ _DATATYPE_TO_STRUCT = {
     PointField.FLOAT64: ("d", 8),
 }
 
+DEFAULT_OBJECT_TYPE = "multitap"
+DEFAULT_INPUT_TOPIC = "/camera/camera/depth/color/points"
+DEFAULT_SAVE_FRAME = "base_link"
+DEFAULT_CAPTURE_DIR = "data/pipeline/captures"
+DEFAULT_MERGED_DIR = "data/pipeline/merged"
+DEFAULT_FILTERED_DIR = "data/pipeline/filtered"
+DEFAULT_COMPARISON_SERVICE = "/pointcloud_comparison/compare"
+OBJECT_ROI_BOUNDS = {
+    "multitap": (
+        np.array([0.28, 0.01, -0.03], dtype=np.float64),
+        np.array([0.46, 0.20, 0.10], dtype=np.float64),
+    ),
+    "bolt": (
+        np.array([0.28, -0.20, -0.03], dtype=np.float64),
+        np.array([0.46, 0.00, 0.10], dtype=np.float64),
+    ),
+}
+
 
 def transform_to_matrix(transform: TransformStamped) -> np.ndarray:
     translation = transform.transform.translation
@@ -107,85 +125,48 @@ class PointCloudPipelineNode(Node):
     def __init__(self) -> None:
         super().__init__("pointcloud_pipeline")
 
-        self.declare_parameter("object_type", "multitap")
-        self.declare_parameter("input_topic", "/camera/camera/depth/color/points")
-        self.declare_parameter("save_frame", "base_link")
-        self.declare_parameter("tf_timeout_sec", 1.0)
-        self.declare_parameter("capture_dir", "data/pipeline/captures")
-        self.declare_parameter("merged_dir", "data/pipeline/merged")
-        self.declare_parameter("filtered_dir", "data/pipeline/filtered")
-        self.declare_parameter("capture_voxel_size", 0.0)
-        self.declare_parameter("icp_voxel_size", 0.002)
-        self.declare_parameter("normal_radius", 0.008)
-        self.declare_parameter("trigger_comparison_on_finalize", True)
-        self.declare_parameter(
+        self.object_type = self.get_string_param("object_type", DEFAULT_OBJECT_TYPE)
+        self.input_topic = self.get_string_param("input_topic", DEFAULT_INPUT_TOPIC)
+        self.save_frame = self.get_string_param("save_frame", DEFAULT_SAVE_FRAME)
+        self.tf_timeout_sec = self.get_float_param("tf_timeout_sec", 1.0)
+        self.capture_dir = Path(
+            self.get_string_param("capture_dir", DEFAULT_CAPTURE_DIR)
+        ).resolve()
+        self.merged_dir = Path(
+            self.get_string_param("merged_dir", DEFAULT_MERGED_DIR)
+        ).resolve()
+        self.filtered_dir = Path(
+            self.get_string_param("filtered_dir", DEFAULT_FILTERED_DIR)
+        ).resolve()
+        self.capture_voxel_size = self.get_float_param("capture_voxel_size", 0.0)
+        self.icp_voxel_size = self.get_float_param("icp_voxel_size", 0.002)
+        self.normal_radius = self.get_float_param("normal_radius", 0.008)
+        self.trigger_comparison_on_finalize = self.get_bool_param(
+            "trigger_comparison_on_finalize",
+            True,
+        )
+        self.comparison_service_name = self.get_string_param(
             "comparison_service",
-            "/pointcloud_comparison/compare",
+            DEFAULT_COMPARISON_SERVICE,
         )
-        self.declare_parameter("max_correspondence_coarse", 0.03)
-        self.declare_parameter("max_correspondence_fine", 0.01)
-        self.declare_parameter("coarse_iterations", 60)
-        self.declare_parameter("fine_iterations", 100)
-        self.declare_parameter("min_fitness", 0.4)
-        self.declare_parameter("max_rmse", 0.005)
-        self.declare_parameter("outlier_nb_neighbors", 30)
-        self.declare_parameter("outlier_std_ratio", 1.5)
-        self.declare_parameter("multitap_roi_min", [0.28, 0.01, -0.03])
-        self.declare_parameter("multitap_roi_max", [0.46, 0.20, 0.10])
-        self.declare_parameter("bolt_roi_min", [0.28, -0.20, -0.03])
-        self.declare_parameter("bolt_roi_max", [0.46, 0.00, 0.10])
-        self.declare_parameter("dbscan_eps", 0.012)
-        self.declare_parameter("dbscan_min_points", 20)
-
-        self.object_type = str(self.get_parameter("object_type").value).strip().lower()
-        self.input_topic = str(self.get_parameter("input_topic").value)
-        self.save_frame = str(self.get_parameter("save_frame").value)
-        self.tf_timeout_sec = float(self.get_parameter("tf_timeout_sec").value)
-        self.capture_dir = Path(self.get_parameter("capture_dir").value).resolve()
-        self.merged_dir = Path(self.get_parameter("merged_dir").value).resolve()
-        self.filtered_dir = Path(self.get_parameter("filtered_dir").value).resolve()
-        self.capture_voxel_size = float(
-            self.get_parameter("capture_voxel_size").value
+        self.max_correspondence_coarse = self.get_float_param(
+            "max_correspondence_coarse",
+            0.03,
         )
-        self.icp_voxel_size = float(self.get_parameter("icp_voxel_size").value)
-        self.normal_radius = float(self.get_parameter("normal_radius").value)
-        self.trigger_comparison_on_finalize = bool(
-            self.get_parameter("trigger_comparison_on_finalize").value
+        self.max_correspondence_fine = self.get_float_param(
+            "max_correspondence_fine",
+            0.01,
         )
-        self.comparison_service_name = str(
-            self.get_parameter("comparison_service").value
-        )
-        self.max_correspondence_coarse = float(
-            self.get_parameter("max_correspondence_coarse").value
-        )
-        self.max_correspondence_fine = float(
-            self.get_parameter("max_correspondence_fine").value
-        )
-        self.coarse_iterations = int(self.get_parameter("coarse_iterations").value)
-        self.fine_iterations = int(self.get_parameter("fine_iterations").value)
-        self.min_fitness = float(self.get_parameter("min_fitness").value)
-        self.max_rmse = float(self.get_parameter("max_rmse").value)
-        self.outlier_nb_neighbors = int(
-            self.get_parameter("outlier_nb_neighbors").value
-        )
-        self.outlier_std_ratio = float(
-            self.get_parameter("outlier_std_ratio").value
-        )
-        self.roi_by_object = {
-            "multitap": (
-                np.array(
-                    self.get_parameter("multitap_roi_min").value, dtype=np.float64),
-                np.array(self.get_parameter("multitap_roi_max").value, dtype=np.float64),
-            ),
-            
-            "bolt": (
-                np.array(self.get_parameter("bolt_roi_min").value, dtype=np.float64),
-                np.array(self.get_parameter("bolt_roi_max").value, dtype=np.float64),
-            ),
-        }
+        self.coarse_iterations = self.get_int_param("coarse_iterations", 60)
+        self.fine_iterations = self.get_int_param("fine_iterations", 100)
+        self.min_fitness = self.get_float_param("min_fitness", 0.4)
+        self.max_rmse = self.get_float_param("max_rmse", 0.005)
+        self.outlier_nb_neighbors = self.get_int_param("outlier_nb_neighbors", 30)
+        self.outlier_std_ratio = self.get_float_param("outlier_std_ratio", 1.5)
+        self.roi_by_object = self.build_roi_by_object()
         self.roi_min, self.roi_max = self.resolve_roi_bounds()
-        self.dbscan_eps = float(self.get_parameter("dbscan_eps").value)
-        self.dbscan_min_points = int(self.get_parameter("dbscan_min_points").value)
+        self.dbscan_eps = self.get_float_param("dbscan_eps", 0.012)
+        self.dbscan_min_points = self.get_int_param("dbscan_min_points", 20)
 
         self.capture_dir.mkdir(parents=True, exist_ok=True)
         self.merged_dir.mkdir(parents=True, exist_ok=True)
@@ -237,6 +218,34 @@ class PointCloudPipelineNode(Node):
             f"comparison_service={self.comparison_service_name}"
         )
 
+    def get_param(self, name: str, default):
+        self.declare_parameter(name, default)
+        return self.get_parameter(name).value
+
+    def get_string_param(self, name: str, default: str) -> str:
+        return str(self.get_param(name, default)).strip()
+
+    def get_float_param(self, name: str, default: float) -> float:
+        return float(self.get_param(name, default))
+
+    def get_int_param(self, name: str, default: int) -> int:
+        return int(self.get_param(name, default))
+
+    def get_bool_param(self, name: str, default: bool) -> bool:
+        return bool(self.get_param(name, default))
+
+    def get_array_param(self, name: str, default: np.ndarray) -> np.ndarray:
+        return np.array(self.get_param(name, default.tolist()), dtype=np.float64)
+
+    def build_roi_by_object(self) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+        return {
+            object_type: (
+                self.get_array_param(f"{object_type}_roi_min", roi_min),
+                self.get_array_param(f"{object_type}_roi_max", roi_max),
+            )
+            for object_type, (roi_min, roi_max) in OBJECT_ROI_BOUNDS.items()
+        }
+
     def handle_cloud(self, message: PointCloud2) -> None:
         self.latest_cloud = message
 
@@ -248,7 +257,6 @@ class PointCloudPipelineNode(Node):
             )
 
         return self.roi_by_object[self.object_type]
-
 
     def maybe_transform_points(
         self,
