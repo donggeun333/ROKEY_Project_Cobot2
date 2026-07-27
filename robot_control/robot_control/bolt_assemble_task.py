@@ -18,6 +18,7 @@ from sensor_msgs.msg import CameraInfo, Image
 import tf2_ros
 from ultralytics import YOLO
 
+from robot_control.force_control_interface import ForceControlInterface
 from robot_control.onrobot import RG
 from robot_control.task_config import (
     APPROACH_Z_OFFSET_MM,
@@ -39,8 +40,18 @@ from robot_control.task_config import (
     DETECT_START_ENABLED,
     DETECT_START_POSE,
     FASTEN_APPROACH_Z_OFFSET_MM,
+    FASTEN_COMPLIANCE_STIFFNESS,
+    FASTEN_COMPLIANCE_TIME_SEC,
+    FASTEN_CONTACT_FORCE_N,
+    FASTEN_CONTACT_TIMEOUT_SEC,
     FASTEN_LIFT_Z_OFFSET_MM,
     FASTEN_SEQUENCE,
+    FASTEN_TARGET_TORQUE_NM,
+    FASTEN_TORQUE_TIMEOUT_SEC,
+    FASTEN_TURN_ACC,
+    FASTEN_TURN_DEGREES,
+    FASTEN_TURN_STEPS,
+    FASTEN_TURN_VEL,
     GRIPPER_NAME,
     HOME_JOINT,
     LIFT_Z_OFFSET_MM,
@@ -110,6 +121,20 @@ def run_movej_with_wait(joint: list[float], vel: float, acc: float) -> None:
 
     movej(joint, vel=vel, acc=acc)
     mwait()
+
+
+def tighten_bolt_with_j6_rotation(node: Node) -> None:
+    from DSR_ROBOT2 import get_current_posj
+
+    current_joint = list(get_current_posj())
+    step_degrees = FASTEN_TURN_DEGREES / FASTEN_TURN_STEPS
+    for step_index in range(FASTEN_TURN_STEPS):
+        current_joint[5] += step_degrees
+        node.get_logger().info(
+            f"볼트 체결 회전 {step_index + 1}/{FASTEN_TURN_STEPS}: "
+            f"target_j6={current_joint[5]:.2f}"
+        )
+        run_movej_with_wait(current_joint, FASTEN_TURN_VEL, FASTEN_TURN_ACC)
 
 
 class BoltDetector:
@@ -395,9 +420,15 @@ def pick_bolt(gripper: RG, bolt_pose: list[float]) -> bool:
     return True
 
 
-def fasten_bolt(gripper: RG, hole_name: str, fasten_pose: list[float]) -> bool:
-    """체결 위치 상단으로 접근 후 체결점으로 내려가 볼트를 놓는다."""
+def fasten_bolt(
+    gripper: RG,
+    force_control: ForceControlInterface,
+    hole_name: str,
+    fasten_pose: list[float],
+) -> bool:
+    """체결 위치 상단으로 접근 후 체결점으로 내려가 J6 회전으로 체결한다."""
     node = get_robot_node()
+
     approach_pose = offset_pose_z(fasten_pose, FASTEN_APPROACH_Z_OFFSET_MM)
     lift_pose = offset_pose_z(fasten_pose, FASTEN_LIFT_Z_OFFSET_MM)
 
@@ -411,6 +442,28 @@ def fasten_bolt(gripper: RG, hole_name: str, fasten_pose: list[float]) -> bool:
         run_movel_with_wait(approach_pose, MOVE_VEL, MOVE_ACC)
         run_movel_with_wait(fasten_pose, SLOW_MOVE_VEL, SLOW_MOVE_ACC)
 
+        if not force_control.enter_compliance_mode(
+            stiffness=FASTEN_COMPLIANCE_STIFFNESS,
+            time_sec=FASTEN_COMPLIANCE_TIME_SEC,
+        ):
+            return False
+        if not force_control.push_until_contact(
+            direction="z",
+            sign=-1,
+            contact_force_n=FASTEN_CONTACT_FORCE_N,
+            timeout_sec=FASTEN_CONTACT_TIMEOUT_SEC,
+        ):
+            node.get_logger().warning(f"{hole_name}번 체결 위치 접촉 감지 실패")
+            return False
+        tighten_bolt_with_j6_rotation(node)
+        if not force_control.is_done_bolt_tightening(
+            target_torque_nm=FASTEN_TARGET_TORQUE_NM,
+            timeout_sec=FASTEN_TORQUE_TIMEOUT_SEC,
+            axis="z",
+        ):
+            node.get_logger().warning(f"{hole_name}번 볼트 체결 완료 판정 실패")
+            return False
+        
         gripper.open_gripper()
         time.sleep(1.0)
 
@@ -418,6 +471,8 @@ def fasten_bolt(gripper: RG, hole_name: str, fasten_pose: list[float]) -> bool:
     except Exception as error:
         node.get_logger().error(f"{hole_name}번 체결 동작 실패: {error}")
         return False
+    finally:
+        force_control.release()
 
     return True
 
@@ -449,7 +504,11 @@ def move_to_detect_start_pose() -> bool:
     return True
 
 
-def execute_bolt_task(detector: BoltDetector, gripper: RG) -> None:
+def execute_bolt_task(
+    detector: BoltDetector,
+    gripper: RG,
+    force_control: ForceControlInterface,
+) -> bool:
     """볼트 탐지, 파지, 체결의 전체 흐름을 관리한다."""
     node = get_robot_node()
 
@@ -457,36 +516,39 @@ def execute_bolt_task(detector: BoltDetector, gripper: RG) -> None:
         node.get_logger().info(f"{hole_name}번 체결 사이클을 시작합니다.")
 
         if not move_to_detect_start_pose():
-            return
+            return False
 
         bolt_pose = detect_bolt(detector)
         if bolt_pose is None:
             node.get_logger().warning(f"{hole_name}번 체결용 볼트 탐지에 실패했습니다.")
-            return
+            return False
 
         if not pick_bolt(gripper, bolt_pose):
-            return
+            return False
 
-        if not fasten_bolt(gripper, hole_name, fasten_pose):
-            return
+        if not fasten_bolt(gripper, force_control, hole_name, fasten_pose):
+            return False
 
     node.get_logger().info("1, 4, 2, 3 순서의 체결 작업을 완료했습니다.")
+    return True
 
 
-def prepare_bolt_runtime(node: Node) -> tuple[BoltDetector, RG]:
+def prepare_bolt_runtime(node: Node) -> tuple[BoltDetector, RG, ForceControlInterface]:
     """
     볼트 체결에 필요한 detector/gripper를 노드 생명주기 동안 1회만 초기화하고 재사용한다.
     같은 노드에 구독자를 중복 생성하지 않기 위한 캐시 계층이다.
     """
     detector = getattr(node, "_bolt_detector", None)
     gripper = getattr(node, "_bolt_gripper", None)
+    force_control = getattr(node, "_bolt_force_control", None)
     resources_ready = getattr(node, "_bolt_runtime_ready", False)
 
-    if detector is not None and gripper is not None and resources_ready:
-        return detector, gripper
+    if detector is not None and gripper is not None and force_control is not None and resources_ready:
+        return detector, gripper, force_control
 
     detector = BoltDetector(node)
     gripper = RG(GRIPPER_NAME, TOOLCHARGER_IP, TOOLCHARGER_PORT)
+    force_control = ForceControlInterface(node.get_logger())
 
     from DSR_ROBOT2 import set_tcp, set_tool
 
@@ -495,8 +557,9 @@ def prepare_bolt_runtime(node: Node) -> tuple[BoltDetector, RG]:
 
     setattr(node, "_bolt_detector", detector)
     setattr(node, "_bolt_gripper", gripper)
+    setattr(node, "_bolt_force_control", force_control)
     setattr(node, "_bolt_runtime_ready", True)
-    return detector, gripper
+    return detector, gripper, force_control
 
 
 def run_bolt_assemble(node: Node) -> bool:
@@ -515,14 +578,14 @@ def run_bolt_assemble(node: Node) -> bool:
         return False
 
     try:
-        detector, gripper = prepare_bolt_runtime(runtime_node)
-        execute_bolt_task(detector, gripper)
-        return True
+        detector, gripper, force_control = prepare_bolt_runtime(runtime_node)
+        return execute_bolt_task(detector, gripper, force_control)
     except Exception as error:
         runtime_node.get_logger().error(f"볼트 체결 시퀀스 실행 실패: {error}")
         return False
     finally:
         try:
+            runtime_node.get_logger().info(f"작업 종료 후 홈 복귀 시도: HOME_JOINT={HOME_JOINT}")
             run_movej_with_wait(HOME_JOINT, MOVE_VEL, MOVE_ACC)
         except Exception as error:
             runtime_node.get_logger().error(f"작업 종료 후 홈 복귀 실패: {error}")
