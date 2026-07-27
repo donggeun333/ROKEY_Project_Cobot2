@@ -43,11 +43,11 @@ DEFAULT_SAVE_MERGED = False
 DEFAULT_SAVE_FILTERED = True
 OBJECT_ROI_BOUNDS = {
     "multitap": (
-        np.array([0.28, 0.01, -0.03], dtype=np.float64),
+        np.array([0.28, 0.01, 0.015], dtype=np.float64),
         np.array([0.46, 0.20, 0.10], dtype=np.float64),
     ),
     "bolt": (
-        np.array([0.28, -0.20, -0.03], dtype=np.float64),
+        np.array([0.28, -0.20, 0], dtype=np.float64),
         np.array([0.46, 0.00, 0.10], dtype=np.float64),
     ),
 }

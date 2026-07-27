@@ -12,15 +12,8 @@ import open3d as o3d
 # =========================================================
 script_dir = Path(__file__).resolve().parent
 
-input_path = (
-    script_dir
-    / "/home/dg/cobot_ws/data/merged_icp/multitap_filled_icp2.pcd"
-)
-
-output_path = (
-    script_dir
-    / "/home/dg/cobot_ws/data/dbscan/multitap_filled_icp2_dbscan2.pcd"
-)
+input_path = Path("/home/dg/cobot_ws/data/pipeline/filtered/good_bolt.pcd")
+output_path = Path("/home/dg/cobot_ws/src/cobot2_ws/pointcloud/resource/good_bolt1.pcd")
 
 
 # =========================================================
@@ -51,8 +44,8 @@ if original_points == 0:
 # 멀티탭 위치에 맞게 조정
 # =========================================================
 bbox = o3d.geometry.AxisAlignedBoundingBox(
-    min_bound=(0.28, 0.01, -0.03),
-    max_bound=(0.46, 0.20, 0.1),
+    min_bound=(0.308, -0.20, 0),
+    max_bound=(0.42, 0.00, 0.10),
 )
 
 roi_cloud = pcd.crop(bbox)
@@ -69,7 +62,7 @@ if roi_points == 0:
 # =========================================================
 # 5. Voxel Downsampling
 # =========================================================
-voxel_size = 0.002  # 2 mm
+voxel_size = 0.001  # 2 mm
 
 downsampled_cloud = roi_cloud.voxel_down_sample(
     voxel_size=voxel_size
@@ -88,8 +81,8 @@ if downsampled_points == 0:
 # 6. Statistical Outlier Removal
 # =========================================================
 filtered_cloud, _ = downsampled_cloud.remove_statistical_outlier(
-    nb_neighbors=30,
-    std_ratio=1.5,
+    nb_neighbors=10,
+    std_ratio=2.5,
 )
 
 filtered_points = len(filtered_cloud.points)
