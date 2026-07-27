@@ -23,6 +23,11 @@
    - `bolt_assemble_task.py`
    - `pointcloud_inspector_task.py`
 
+현재는 `voice_command_stack.launch.py`로 아래를 함께 실행할 수 있다.
+
+- `robot_control/robot_command_server`
+- `robot_control/voice_command_dispatcher`
+
 ## 지원 명령
 
 - `볼트 체결해줘`
@@ -79,23 +84,18 @@
 
 ## 기본 실행 구성
 
-볼트 체결만 테스트:
+현재 권장 실행:
 
 1. robot bringup
 2. realsense
 3. `ros2 run voice_processing get_keyword`
-4. `ros2 run robot_control robot_command_server`
-5. `ros2 run robot_control voice_command_dispatcher`
+4. 필요 시 `ros2 launch pointcloud pipeline_with_comparison.launch.py`
+5. `ros2 launch robot_control voice_command_stack.launch.py`
 
-멀티탭/볼트 3D 검사까지 테스트:
+이 launch가 같이 띄우는 것:
 
-1. robot bringup
-2. realsense
-3. 필요 시 static TF
-4. `ros2 launch pointcloud pipeline_with_comparison.launch.py`
-5. `ros2 run voice_processing get_keyword`
-6. `ros2 run robot_control robot_command_server`
-7. `ros2 run robot_control voice_command_dispatcher`
+- `robot_control/robot_command_server`
+- `robot_control/voice_command_dispatcher`
 
 ## 관련 외부 패키지
 
@@ -133,6 +133,7 @@
 - `robot_control/robot_control/pointcloud_inspector_task.py`
 - `robot_control/robot_control/task_config.py`
 - `robot_control/robot_control/onrobot.py`
+- `robot_control/launch/voice_command_stack.launch.py`
 - `robot_control/setup.py`
 - `robot_control/package.xml`
 - `robot_control/README.md`

@@ -57,6 +57,8 @@ cobot2_ws/
 │   ├── INTEGRATION_GUIDE.md
 │   ├── package.xml
 │   ├── setup.py
+│   ├── launch/
+│   │   └── voice_command_stack.launch.py
 │   └── robot_control/
 │       ├── robot_command_server.py
 │       ├── voice_command_dispatcher.py
@@ -117,6 +119,19 @@ cobot2_ws/
 5. 각 task 파일이 실제 로봇 동작을 수행한다.
 
 즉, 새 기능도 반드시 같은 구조에 맞춰 붙이는 것을 권장한다.
+
+현재 실행은 보통 아래처럼 한다.
+
+1. robot bringup
+2. realsense
+3. `ros2 run voice_processing get_keyword`
+4. 필요 시 `ros2 launch pointcloud pipeline_with_comparison.launch.py`
+5. `ros2 launch robot_control voice_command_stack.launch.py`
+
+이 launch는 아래만 함께 실행한다.
+
+- `robot_control/robot_command_server`
+- `robot_control/voice_command_dispatcher`
 
 ## 절대 권장하지 않는 방식
 
