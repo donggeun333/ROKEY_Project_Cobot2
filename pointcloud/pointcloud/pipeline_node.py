@@ -268,12 +268,25 @@ class PointCloudPipelineNode(Node):
         if not self.save_frame or self.save_frame == source_frame:
             return points
 
-        transform = self.tf_buffer.lookup_transform(
-            self.save_frame,
-            source_frame,
-            Time.from_msg(stamp),
-            timeout=Duration(seconds=self.tf_timeout_sec),
-        )
+        requested_time = Time.from_msg(stamp)
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                self.save_frame,
+                source_frame,
+                requested_time,
+                timeout=Duration(seconds=self.tf_timeout_sec),
+            )
+        except tf2_ros.ExtrapolationException as error:
+            self.get_logger().warn(
+                "TF lookup at message stamp failed; retrying with latest transform. "
+                f"source_frame={source_frame}, target_frame={self.save_frame}, error={error}"
+            )
+            transform = self.tf_buffer.lookup_transform(
+                self.save_frame,
+                source_frame,
+                Time(),
+                timeout=Duration(seconds=self.tf_timeout_sec),
+            )
         matrix = transform_to_matrix(transform)
         homogeneous = np.hstack((points, np.ones((len(points), 1), dtype=np.float64)))
         transformed = (matrix @ homogeneous.T).T

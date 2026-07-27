@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -142,18 +143,21 @@ class PointCloudComparisonNode(Node):
     def handle_compare(self, request, response):
         try:
             self.object_type = self.get_string_param("object_type", DEFAULT_OBJECT_TYPE)
-            self.config.roi_min, self.config.roi_max = self.resolve_roi_bounds()
+            self.reference_by_object = self.build_reference_by_object()
+            self.roi_by_object = self.build_roi_by_object()
+            roi_min, roi_max = self.resolve_roi_bounds()
+            current_config = replace(self.config, roi_min=roi_min, roi_max=roi_max)
             reference_path = self.resolve_reference_path()
             test_path = Path(request.test_path).resolve()
             if not request.test_path.strip():
                 raise ValueError("test_path is required.")
             output_dir = self.make_output_dir(test_path)
-            result = compare_point_cloud_files(reference_path, test_path, self.config)
+            result = compare_point_cloud_files(reference_path, test_path, current_config)
             save_comparison_outputs(
                 output_dir=output_dir,
                 reference_path=reference_path,
                 test_path=test_path,
-                config=self.config,
+                config=current_config,
                 result=result,
             )
             self.last_output_dir = output_dir

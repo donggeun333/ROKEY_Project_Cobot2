@@ -6,9 +6,9 @@ import time
 import DR_init
 import rclpy
 from od_msg.srv import SrvPointCloudCompare
+from rcl_interfaces.srv import SetParameters
 from rclpy.node import Node
 from rclpy.parameter import Parameter
-from rclpy.parameter_client import AsyncParameterClient
 from std_srvs.srv import Trigger
 from robot_control.task_config import (
     CAPTURE_SERVICE,
@@ -20,6 +20,7 @@ from robot_control.task_config import (
     FINALIZE_TIMEOUT_SEC,
     OBJECT_TYPE_BOLT,
     OBJECT_TYPE_MULTITAP,
+    POINTCLOUD_REFERENCE_PATH_BY_OBJECT,
     PIPELINE_NODE_NAME,
     POINTCLOUD_SCAN_ACC,
     POINTCLOUD_SCAN_VEL,
@@ -72,28 +73,54 @@ def prepare_pointcloud_runtime(node: Node):
     return clients
 
 
-def set_remote_object_type(node: Node, object_type: str) -> None:
-    parameter = Parameter("object_type", Parameter.Type.STRING, object_type)
+def call_set_parameters(node: Node, client, client_name: str, parameters: list[Parameter]) -> None:
+    request = SetParameters.Request()
+    request.parameters = [parameter.to_parameter_msg() for parameter in parameters]
+    future = client.call_async(request)
+    rclpy.spin_until_future_complete(node, future, timeout_sec=5.0)
+    if not future.done():
+        future.cancel()
+        raise TimeoutError(f"{client_name} parameter update timeout")
+    response = future.result()
+    if response is None or len(response.results) != len(parameters):
+        raise RuntimeError(f"{client_name} parameter update failed: no response")
+    for result in response.results:
+        if not result.successful:
+            raise RuntimeError(f"{client_name} parameter update failed: {result.reason}")
+
+
+def set_remote_pointcloud_config(node: Node, object_type: str) -> None:
     client_map = getattr(node, "_pointcloud_param_clients", None)
     if client_map is None:
         client_map = {
-            "pipeline": AsyncParameterClient(node, PIPELINE_NODE_NAME),
-            "comparison": AsyncParameterClient(node, COMPARISON_NODE_NAME),
+            "pipeline": node.create_client(SetParameters, f"{PIPELINE_NODE_NAME}/set_parameters"),
+            "comparison": node.create_client(SetParameters, f"{COMPARISON_NODE_NAME}/set_parameters"),
         }
         setattr(node, "_pointcloud_param_clients", client_map)
 
     for client_name, client in client_map.items():
         if not client.wait_for_service(timeout_sec=3.0):
             raise RuntimeError(f"{client_name} parameter service unavailable")
-        future = client.set_parameters([parameter])
-        rclpy.spin_until_future_complete(node, future, timeout_sec=5.0)
-        if not future.done():
-            future.cancel()
-            raise TimeoutError(f"{client_name} parameter update timeout")
-        result = future.result()
-        if not result or not result[0].successful:
-            reason = result[0].reason if result else "no response"
-            raise RuntimeError(f"{client_name} object_type update failed: {reason}")
+    call_set_parameters(
+        node,
+        client_map["pipeline"],
+        "pipeline",
+        [Parameter("object_type", Parameter.Type.STRING, object_type)],
+    )
+    comparison_parameters = [
+        Parameter("object_type", Parameter.Type.STRING, object_type),
+        Parameter(
+            f"{object_type}_reference_path",
+            Parameter.Type.STRING,
+            POINTCLOUD_REFERENCE_PATH_BY_OBJECT[object_type],
+        ),
+    ]
+    call_set_parameters(
+        node,
+        client_map["comparison"],
+        "comparison",
+        comparison_parameters,
+    )
 
 
 def run_pointcloud_inspection(node: Node, object_type: str) -> tuple[bool, str]:
@@ -120,7 +147,7 @@ def run_pointcloud_inspection(node: Node, object_type: str) -> tuple[bool, str]:
         return False, f"서비스 연결 실패: {COMPARE_SERVICE}"
 
     try:
-        set_remote_object_type(node, object_type)
+        set_remote_pointcloud_config(node, object_type)
 
         reset_response = call_service(
             node,

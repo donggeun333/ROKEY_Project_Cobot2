@@ -28,13 +28,8 @@ setup(
     extras_require={"test": ["pytest"]},
     entry_points={
         "console_scripts": [
-            "capture_node = pointcloud.capture_node:main",
             "comparison_node = pointcloud.comparison_node:main",
-            # "merge_saved_node = pointcloud.merge_saved_node:main",
-            # "merge_saved_node_test = pointcloud.merge_saved_node_test:main",
-            # "merger_node = pointcloud.merger_node:main",
             "pipeline_node = pointcloud.pipeline_node:main",
-            "scan_test = pointcloud.scan_test:main",
         ],
     },
 )

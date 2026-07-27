@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+from ament_index_python.packages import get_package_share_directory
+
+
+def resolve_package_resource(package_name: str, relative_path: str) -> str:
+    share_dir = Path(get_package_share_directory(package_name)).resolve()
+    return str((share_dir / relative_path).resolve())
+
+
 ROBOT_ID = "dsr01"
 ROBOT_MODEL = "m0609"
 
@@ -9,7 +19,7 @@ TOOLCHARGER_PORT = "502"
 TOOL_NAME = "Tool Weight"
 TCP_NAME = "GripperDA_v1"
 
-BOLT_MODEL_PATH = "/home/dg/cobot_ws/src/cobot2_ws/robot_control/resource/bolt.pt"
+BOLT_MODEL_PATH = resolve_package_resource("robot_control", "resource/bolt.pt")
 BOLT_COLOR_TOPIC = "/camera/camera/color/image_raw"
 BOLT_DEPTH_TOPIC = "/camera/camera/aligned_depth_to_color/image_raw"
 BOLT_CAMERA_INFO_TOPIC = "/camera/camera/color/camera_info"
@@ -88,6 +98,10 @@ FASTEN_SEQUENCE = [
 
 OBJECT_TYPE_MULTITAP = "multitap"
 OBJECT_TYPE_BOLT = "bolt"
+POINTCLOUD_REFERENCE_PATH_BY_OBJECT = {
+    OBJECT_TYPE_BOLT: resolve_package_resource("pointcloud", "resource/good_bolt.pcd"),
+    OBJECT_TYPE_MULTITAP: resolve_package_resource("pointcloud", "resource/good_multitap.pcd"),
+}
 MULTITAP_SCAN_JOINT_POSITIONS = [
     [4.21884871, 3.42193103, 95.0242310, -0.0846541375, 81.1648254, 4.84697104],
     [-29.61434174, 20.70296669, 104.96266174, 33.40117645, 75.39304352, -43.33092117],
