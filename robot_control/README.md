@@ -52,17 +52,10 @@
 - `robot_control/task_config.py`
   - 볼트 체결 포즈, 스캔 포즈, 토픽, 타임아웃, 서비스명 같은 공통 설정 모음
 
-## 보조 파일 역할
+## 참고/보조 파일 역할
 
 - `robot_control/onrobot.py`
   - OnRobot RG2 그리퍼 제어
-- `robot_control/motion_interface.py`
-  - 일반 로봇 이동/그리퍼 래퍼
-  - 현재 메인 음성 흐름의 직접 실행기는 아니지만 기준 기능이 들어 있음
-- `robot_control/perception_interface.py`
-  - 2D/Depth 기반 물체 인식 보조
-- `robot_control/force_control_interface.py`
-  - 힘제어, 삽입, 체결 완료 확인 보조
 - `robot_control/grasp_visualizer_node.py`
   - grasp 시각화용 유틸 노드
 - `robot_control/robot_control.py`
@@ -126,11 +119,8 @@
 - `robot_control/task_config.py`
 - `robot_control/onrobot.py`
 
-지금 구조에서 보조 또는 참고 성격이 강한 파일:
+지금 구조에서 참고 또는 보조 성격이 강한 파일:
 
-- `robot_control/motion_interface.py`
-- `robot_control/perception_interface.py`
-- `robot_control/force_control_interface.py`
 - `robot_control/robot_control.py`
 - `robot_control/make3d.py`
 - `robot_control/grasp_visualizer_node.py`
