@@ -1,0 +1,26 @@
+# RobotCommand.action
+# 음성 명령에서 추출된 intent를 실제 로봇 동작으로 실행시키기 위한 액션 정의 파일.
+# ROS2 액션은 "---" 두 개로 3부분(Goal / Result / Feedback)을 구분합니다.
+#
+# 액션을 쓰는 이유:
+#   볼트 체결, 커넥터 결합, 3D 검사 등은 몇 초~몇십 초가 걸리는 "긴 작업"이라
+#   1) 중간 진행 상황(Feedback)을 알려주고
+#   2) 필요하면 중간에 취소(Cancel)도 가능해야 하기 때문에
+#   서비스(Service) 대신 액션(Action)으로 구성하는 것이 정석입니다.
+
+# ---- Goal (목표: 클라이언트가 로봇에게 전달하는 요청 내용) ----
+string intent           # 수행할 의도 (예: "BOLT_ASSEMBLE", "TOOL_FETCH", "TOOL_CLEANUP",
+                         #              "INSPECT_FASTEN", "CONNECTOR_AUTO_CONNECT",
+                         #              "CABLE_FETCH_HANDOVER", "CONNECTOR_INSPECT")
+string[] tools          # 대상 도구/부품 리스트 (예: ["hammer"]) - 필요 없는 intent는 비워서 전달
+string[] targets        # 대상 위치 리스트 (예: ["tool_box"]) - 필요 없는 intent는 비워서 전달
+
+---
+# ---- Result (결과: 작업이 끝났을 때 최종적으로 반환하는 값) ----
+bool success            # 작업이 최종적으로 성공했는지 여부
+string message          # 결과 설명 메시지 (예: "hammer를 tool_box에서 가져와 전달 완료")
+
+---
+# ---- Feedback (피드백: 작업이 진행되는 동안 주기적으로 전달하는 중간 상태) ----
+string status           # 현재 진행 단계 설명 (예: "이동 중", "그리퍼 파지 중", "3D 스캔 중")
+float32 progress        # 진행률 (0.0 ~ 1.0)

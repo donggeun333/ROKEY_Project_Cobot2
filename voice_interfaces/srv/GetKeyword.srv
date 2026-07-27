@@ -1,0 +1,18 @@
+# GetKeyword.srv
+# 음성 명령 인식 결과를 요청/응답하는 커스텀 서비스 정의 파일.
+# ROS2에서 .srv 파일은 "---" 구분선을 기준으로 위쪽이 Request(요청), 아래쪽이 Response(응답)입니다.
+
+# ---- Request (요청) ----
+# 이 서비스는 클라이언트가 "지금 음성 명령을 받아줘"라고 트리거만 하면 되므로
+# 요청 쪽에는 특별한 데이터가 필요 없습니다 (기존 Trigger.srv와 동일하게 비워둠).
+
+
+---
+# ---- Response (응답) ----
+bool success          # 음성 인식 및 intent 추출이 정상적으로 처리되었는지 여부
+string intent          # 추출된 의도 (예: "BOLT_ASSEMBLE", "TOOL_FETCH", "TOOL_CLEANUP",
+                        #             "INSPECT_FASTEN", "CONNECTOR_AUTO_CONNECT",
+                        #             "CABLE_FETCH_HANDOVER", "CONNECTOR_INSPECT", 실패 시 "UNKNOWN")
+string[] tools          # 언급된 도구/부품 리스트 (예: ["hammer", "bolt"]) - 없으면 빈 리스트
+string[] targets        # 언급된 위치 리스트 (예: ["tool_box", "bolt_holder"]) - 없으면 빈 리스트
+string raw_text         # STT로 변환된 원본 발화 텍스트 (디버깅 및 로깅용)
