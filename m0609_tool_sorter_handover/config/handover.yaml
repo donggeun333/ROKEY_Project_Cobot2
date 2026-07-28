@@ -1,0 +1,62 @@
+# 노드 이름을 특정하지 않는다 — 이유는 tool_sorter.yaml의 /** 블록 주석 참고.
+# main_controller가 이름을 바꿔 띄우면 특정 이름 키는 조용히 무시된다.
+/**:
+  ros__parameters:
+    # 전달 작업은 실제 Pick과 파지 유지가 필요하다.
+    execution_mode: pick_place
+    # 접근 전과 사용자가 공구를 받은 뒤 RG2를 50 mm까지만 연다.
+    gripper_preopen_width_mm: 50.0
+
+    # 파지점을 손잡이 중앙에서 로봇 쪽으로 당기는 양. 망치가 공구함 바깥쪽에
+    # 놓이면 파지점 X가 620~670 mm까지 나가고, 안전 높이 수평 MoveJointx가
+    # 알람 1206 "Pose(...) is NOT REACHABLE"로 거부된다(고정된 IK 해 공간으로
+    # 풀리지 않는 자세라서). 손잡이 자유단이 로봇 쪽일 때만 적용되고,
+    # 손잡이 장축의 1/4을 넘지 않도록 잘리므로 손잡이 위를 벗어나지 않는다.
+    # organize(autonomous)는 기본값 0.0이라 영향받지 않는다.
+    grasp_axial_offset_mm: 40.0
+
+    # 공구함 위 실측 절대 관측 자세 [X, Y, Z, RX, RY, RZ]
+    # (mm, mm, mm, deg, deg, deg, Doosan Base 기준).
+    # 카메라 광축 기울기 1.4도로 거의 정확히 아래를 본다.
+    # 비워두면 organize와 같은 Bird view(Home TCP + bird_raise_mm)를 쓴다.
+    #
+    # X를 563.73에서 444.01로 당긴 재실측 값이다. 이전 값에서는 하강
+    # MoveLine이 특이점 영역에 진입해(알람 3205) 회피 모드가 J3를
+    # 안전한계까지 감속시켰다(알람 3210). 팔을 덜 뻗은 자세로 옮겨
+    # 그 영역에서 빠져나오는 것이 목적이다.
+    tool_pickup_scan_pose: [
+      444.01,
+      -10.82,
+      257.70,
+      141.29,
+      -179.87,
+      -128.46,
+    ]
+
+    # 관측 자세로 가는 경로는 어느 쪽이든 Home을 먼저 거친다. movejx가
+    # 현재 IK 해 공간을 유지하기 때문이다. 이 값이 꺼져 있으면 상위가
+    # home_joint_pose와 safe_jointx_* 를 검증하지 않는다.
+    auto_scan_motion: true
+
+    # 전달은 로컬 재검출을 쓰지 않는다. Bird view에 선 채로 요청받은 공구를
+    # 다시 스캔할 뿐 대상 위로 내려가 재관측하지 않는다. 켜두면 실제로는
+    # 쓰지도 않는 local_scan_standoff_mm 인터록(0.0)에 걸려 BLOCKED가 된다.
+    local_rescan_enabled: false
+
+    # 전달 자세는 home_joint_pose를 그대로 쓴다. 이 팔 구조에서는 Home이
+    # 사람이 공구를 받기 좋은 위치이므로 별도 좌표를 두지 않는다.
+
+    # 사용자가 공구를 당겼다고 판정할 "정지 상태 기준값 대비 상승분"이다.
+    # 절대값이 아닌 이유: 공구를 쥐고 있으면 자중으로 이미 힘이 걸려 있고,
+    # 그 크기가 공구마다 다르다.
+    # force_limit_n(충돌 시 안전 중단 기준)보다 반드시 작아야 한다.
+    release_force_n: 12.0
+
+    # 기준값 측정 샘플 수와 당김 대기 시간. 시간이 지나도 그리퍼를 열지
+    # 않는다. 아무도 안 잡은 상태에서 열면 공구가 떨어지기 때문이다.
+    # 대신 상태 토픽에 안내를 다시 올리고 계속 대기한다.
+    release_baseline_samples: 5
+    release_timeout_s: 30.0
+
+    # 요청받은 공구를 관측 자세에서 찾는 제한 시간.
+    search_timeout_s: 10.0

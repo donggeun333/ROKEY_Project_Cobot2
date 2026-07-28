@@ -1,0 +1,182 @@
+tool_sorter_perception:
+  ros__parameters:
+    # bringup_camera.launch.py의 RealSense 기본 토픽
+    color_topic: /camera/camera/color/image_raw
+    depth_topic: /camera/camera/aligned_depth_to_color/image_raw
+    camera_info_topic: /camera/camera/color/camera_info
+    # 현재 RealSense SYSTEM_DEFAULT publisher가 RELIABLE이므로 정확히 맞춘다.
+    # KEEP_LAST(5)와 latest-frame-only worker로 추론 지연 누적은 방지한다.
+    camera_qos: reliable
+    sync_tolerance_ms: 50.0
+    # aligned depth가 16UC1(mm)이므로 1.0. 32FC1(m)을 쓰면 1000.0.
+    depth_scale_to_mm: 1.0
+
+    confidence: 0.40
+    part_confidence: 0.15
+    min_valid_depth_ratio: 0.30
+    # 두 마스크 교집합 / 작은 마스크 면적의 임계값
+    overlap_threshold: 0.05
+    part_min_containment: 0.50
+    image_size: 640
+    # 빈 문자열은 Ultralytics 자동 선택. 예: "0"은 CUDA 0, "cpu"는 CPU.
+    device: ""
+
+    # LAN 케이블 테이프 ↔ 실제로 가장 가까운 LAN 포트 HSV 공정 검사.
+    # 두 대상이 같이 보이지 않거나 공간적 연결이 불명확하면 NG가 아닌 UNKNOWN.
+    lan_color_enabled: true
+    lan_color_confidence: 0.15
+    # 회색 케이블/흰색 공유기 외장을 제외하고 색 테이프·포트만 보는 기준.
+    lan_color_min_saturation: 45
+    lan_color_min_value: 25
+    lan_color_max_value: 245
+    # 포트에 가장 가까운 케이블 마스크 35%만 테이프 색상 ROI로 사용.
+    lan_color_cable_tip_fraction: 0.35
+    # OpenCV Hue 12 = 실제 색상환 약 24도. 현장 검증셋으로 최종 튜닝.
+    lan_color_max_hue_distance: 12.0
+    # 테이프와 포트 플라스틱의 재질·그림자 차이는 S/V 허용폭으로 흡수한다.
+    # 정확히 같은 HSV가 아니라 세 거리 모두 아래 범위면 같은 색으로 판정.
+    lan_color_max_saturation_distance: 130.0
+    lan_color_max_value_distance: 190.0
+    # 영상 대각선 대비 케이블 마스크와 포트 마스크의 최대 연결 거리.
+    lan_color_max_pair_gap_ratio: 0.04
+    lan_color_duplicate_iou: 0.55
+    # 같은 OK/NG가 연속 3프레임일 때만 Bool/TTS 판정을 발행.
+    lan_color_stable_frames: 3
+    lan_color_reset_after_seconds: 2.0
+
+tool_sorter_dashboard:
+  ros__parameters:
+    # 원본 카메라 FPS로 부드럽게 표시하고 최신 scene geometry를 로컬 overlay.
+    # /tool_sorter/perception/annotated는 추론 프레임 디버깅용으로 계속 발행한다.
+    color_topic: /camera/camera/color/image_raw
+    # 움직이는 원본 영상에 오래된 검출 좌표를 그리지 않는 최대 시간 차.
+    overlay_max_age_s: 0.75
+    # task manager의 target_names와 같은 값으로 유지한다. 시작 버튼의
+    # "가능 N"과 활성화 판정이 실제 작업 대상과 어긋나지 않게 하는 용도다.
+    target_names: [hammer, screwdriver, wrench, monkey_wrench, vise]
+
+# task manager 파라미터는 노드 이름을 특정하지 않는다.
+#
+# main_controller는 autonomous와 handover의 task manager를 동시에 띄워야 해서
+# 이름을 tool_sorter_autonomous_task_manager / tool_sorter_handover_task_manager로
+# 나눈다. ROS 2는 params 파일의 최상위 키가 노드 이름과 정확히 일치할 때만
+# 값을 넣어주므로, 여기에 특정 이름을 적어두면 그 경로에서 파라미터가
+# 통째로 사라진다 — 에러 없이 조용히 기본값으로 돌아가서, execution_mode가
+# inspect가 되고 auto_scan_motion이 false가 되어 시작 자체가 거부된다.
+#
+# /** 는 이름과 네임스페이스를 가리지 않는다. 외부 제어부가 노드를 어떻게
+# 띄우든 따라간다. 선언하지 않은 파라미터는 무시되므로 같은 파일을 받는
+# perception_node에는 영향이 없고(키 중복 0개), dashboard처럼 자기 섹션이
+# 있는 노드는 그 구체적 키가 /** 를 이긴다.
+/**:
+  ros__parameters:
+    # inspect: 계산만 / point: hover 왕복 / pick_place: 실제 파지와 배치
+    execution_mode: inspect
+    robot_namespace: dsr01
+    # Hand-Eye calibration에 사용한 티칭 펜던트 preset 이름.
+    # 실행 시 선택 후 get_current_* 서비스로 대소문자까지 재검증한다.
+    tcp_name: GripperDA_v1
+    tool_name: "Tool Weight"
+    # TCP 이름은 항상 강제 검증한다. Tool 이름은 좌표계와 무관하므로 현재
+    # controller 값을 사용하되, 실제 무게/무게중심이 맞는지는 현장에서 확인.
+    enforce_tool_preset: false
+    gripper_service: /onrobot/sendCommand
+    # 공구 handle/vise_head 시나리오에서는 최대 110 mm 개방이 필요 없으므로
+    # 접근 전과 배치 해제 시 개방 폭을 50 mm로 제한한다.
+    # 유효한 비전 폭이면 측정값-5 mm로 파지하고, 비전값이 없거나 50 mm
+    # 범위 밖이면 로봇이 접근하기 전에 해당 검출을 건너뛴다.
+    # OnRobot 서비스에는 0.1 mm 단위 정수 문자열로 변환되어
+    # 50 mm는 "500"으로 전달된다.
+    gripper_preopen_width_mm: 50.0
+    gripper_width_margin_mm: 5.0
+    base_frame: base_link
+    tcp_frame: GripperDA_v1
+    projection_frame: calibrated_camera_color_optical_frame
+    tf_cache_s: 20.0
+    tf_timeout_s: 0.3
+
+    # 실측 -0.65 mm에서 여유를 둔 작업 기준면.
+    table_z_mm: -0.6
+    grasp_depth_ratio: 0.50
+    # 비전 계산 파지 Z에 더하는 Base-Z 실측 보정값.
+    # 현재 실측 보정값 -15.0은 계산 위치보다 15 mm 아래로 이동한다.
+    # 음수는 아래로, 양수는 위로 이동한다.
+    # 최종 Z는 minimum_table_clearance_mm 하한 아래로 내려가지 않는다.
+    grasp_z_offset_mm: -15.0
+    finger_offset_deg: 0.0
+    hover_mm: 80.0
+    lift_mm: 150.0
+    minimum_table_clearance_mm: 2.0
+
+    travel_velocity: 60.0
+    travel_acceleration: 120.0
+    approach_velocity: 20.0
+    approach_acceleration: 40.0
+
+    # 연속 하강 중 20 Hz로 외력을 읽고, 연속 2회 초과하면 soft stop.
+    # 소프트웨어 감시이며 안전 인증 기능/E-stop 대체품이 아님.
+    force_limit_n: 30.0
+    force_poll_hz: 20.0
+    force_debounce_samples: 2
+
+    # 이송 구간(안전 높이 수평 MoveJointx, 수직 MoveLine) 충돌 감시.
+    # MoveJointx는 끝점만 고정하고 팔꿈치·손목이 지나는 부피는 직선이
+    # 아니므로, 이 감시가 그 구간을 지키는 유일한 소프트웨어 방어선이다.
+    # 절대값이 아닌 "이동 직전 정지 상태 기준값 대비 상승분"이다.
+    # 공구를 쥐고 있으면 자중이 이미 절대값에 얹혀 있어 force_limit_n을
+    # 그대로 쓸 수 없다(파지 후 이송이 곧바로 걸린다).
+    # force_limit_n보다 작아야 하며 시작 시 검증한다.
+    # 0 이하로 두면 이송 감시를 끈다.
+    transfer_force_rise_n: 20.0
+    # 기준값 측정 샘플 수. force_poll_hz 20Hz에서 3샘플은 약 0.15초이며,
+    # 매 이송 구간 시작마다 그만큼 정지 시간이 늘어난다.
+    transfer_force_baseline_samples: 3
+    # 비동기 MoveLine 종료 후 실제 TCP XYZ와 목표의 최대 허용 오차.
+    # 컨트롤러가 NOT REACHABLE을 내고 IDLE로 남는 경우를 성공 처리하지 않는다.
+    motion_position_tolerance_mm: 3.0
+    gripper_settle_s: 1.3
+
+    scene_max_age_s: 1.0
+    camera_settle_s: 0.7
+    service_wait_s: 12.0
+    empty_scene_confirmations: 3
+    local_empty_confirmations: 3
+    max_picks: 20
+    # 실제 YOLO 클래스명. 아래 다섯 공구만 Pick & Place 대상으로 선택한다.
+    target_names: [hammer, screwdriver, wrench, monkey_wrench, vise]
+
+    # Home에서 먼저 검출 -> 대상이 없을 때만 Base +Z Bird view
+    # -> Pick/Place -> 마지막 Pick 위치 local scan.
+    # 실물 이동을 추측값으로 활성화하지 않는다. 아래 두 높이를 현장에서
+    # 티칭/검증한 뒤에만 auto_scan_motion을 true로 바꾼다.
+    auto_scan_motion: false
+    home_joint_pose: [0.0, 0.0, 90.0, 0.0, 90.0, 0.0]
+    home_joint_velocity: 20.0
+    home_joint_acceleration: 40.0
+    home_motion_timeout_s: 45.0
+    # 안전 높이의 장거리 XY/yaw 이동은 MoveJointx(관절 보간)를 사용해
+    # MoveLine 직선 경로 중 wrist 특이점을 통과하는 문제를 피한다.
+    # 실제 파지/배치 수직 하강은 계속 MoveLine + 외력 감시를 사용한다.
+    safe_jointx_velocity: 20.0
+    safe_jointx_acceleration: 40.0
+    # Home 카메라 장면에 파지 가능한 물체가 있으면 Bird view를 생략한다.
+    home_direct_pick_enabled: true
+    # Home TCP의 Base Z에서 위로 올라갈 상대 거리.
+    # Home Z 약 183 mm, 동일 자세 Jog 도달 Z 약 430 mm 실측을 기준으로
+    # 첫 검증값은 +200 mm(목표 약 383 mm, 상단 여유 약 47 mm)로 둔다.
+    bird_raise_mm: 200.0
+    # Hand-Eye 적용 후 camera optical +Z와 Base -Z 사이 허용 각도.
+    bird_max_tilt_deg: 15.0
+
+    local_rescan_enabled: true
+    # 마지막 Pick의 Base XY를 카메라 중심으로 볼 camera-to-table 거리.
+    # 0은 안전 인터록 값이며 실제 FOV/depth를 보고 정해야 한다.
+    local_scan_standoff_mm: 0.0
+    # Local 영상에 다른 물체가 보여도 마지막 Pick 주변만 연속 작업한다.
+    local_scan_radius_mm: 150.0
+
+    # [X, Y, Z, RX, RY, RZ], Doosan base 기준 mm/deg.
+    # 비워두면 집은 위치에서 이 offset만큼 옆에 임시 배치한다.
+    # 실제 공구함 위치를 티칭하면 place_pose 6값이 offset보다 우선한다.
+    place_pose: []
+    place_offset_xy_mm: [150.0, 0.0]

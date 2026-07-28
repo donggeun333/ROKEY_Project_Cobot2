@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+"""레거시 직접 Modbus RG2 제어기.
+
+현재 통합 실행 경로는 이 파일을 쓰지 않는다. 실사용 경로는
+``gripper_service.py``를 통해 ``onrobot_rg_control`` 드라이버의
+``/onrobot/sendCommand`` 서비스를 호출한다.
+
+이 파일은 과거 단독 스크립트/실험 코드 호환용으로 남아 있으며, 제출물 리뷰 시
+"현재 표준 그리퍼 제어 경로가 아님"을 분명히 하기 위해 유지한다.
+"""
 
 from pymodbus.client.sync import ModbusTcpClient as ModbusClient
 

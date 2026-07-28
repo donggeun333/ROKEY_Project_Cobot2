@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://ros.org/wiki/xacro" name="m0609_rg2">
+
+  <!-- M0609 URDF include -->
+  <xacro:include filename="$(find dsr_description2)/urdf/m0609.urdf"/>
+
+  <!-- RG2 macro include -->
+  <xacro:include filename="$(find m0609_rg2_bringup)/urdf/onrobot_rg2_model_macro.xacro"/>
+
+  <!-- attaching RG2 Gripper to M0609 tool0 -->
+  <xacro:onrobot_rg2 prefix="rg2_" effector_base="tool0"/>
+
+</robot>

@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>PAGE 4: 검사 이력 & 데이터 관리 - HMI</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', sans-serif; background-color: #1a1a1a; color: #fff; padding: 15px; }
+        
+        header { display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 12px 20px; border-radius: 8px; margin-bottom: 15px; border-left: 5px solid #2ecc71; }
+        .nav-btns { display: flex; gap: 8px; }
+        .btn-nav { padding: 8px 14px; background: #333; color: #fff; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 13px; }
+        .btn-nav.active { background: #2ecc71; color: #1a1a1a; }
+        .btn-estop-header { background: #e74c3c; color: #fff; font-weight: bold; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; }
+        
+        .panel { background: #2a2a2a; border-radius: 8px; padding: 15px; border: 1px solid #3d3d3d; margin-bottom: 15px; }
+        
+        /* 요약 KPI 카드 대시보드 */
+        .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+        .summary-card { background: #333; padding: 12px; border-radius: 6px; border: 1px solid #444; text-align: center; }
+        .summary-title { font-size: 11px; color: #aaa; margin-bottom: 4px; }
+        .summary-val { font-size: 20px; font-weight: bold; color: #fff; }
+
+        .table-container { max-height: 420px; overflow-y: auto; margin-top: 10px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+        th, td { padding: 10px; border-bottom: 1px solid #444; }
+        th { background: #333; color: #00adb5; }
+        .btn-download { background: #2ecc71; color: #1a1a1a; padding: 10px 18px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; text-decoration: none; display: inline-block; }
+    </style>
+</head>
+<body>
+
+    <!-- Global Navigation Header -->
+    <header>
+        <h1 style="font-size:18px; color:#2ecc71;">📊 검사 이력 & DB 관리</h1>
+        <div class="nav-btns">
+            <a href="/admin/dashboard" class="btn-nav">1. 공정 모니터링</a>
+            <a href="/admin/viewer3d" class="btn-nav">2. 3D 품질분석</a>
+            <a href="/admin/control" class="btn-nav">3. 수동 제어</a>
+            <a href="/admin/history" class="btn-nav active">4. 이력/DB</a>
+        </div>
+        <button class="btn-estop-header" onclick="sendCommand('ESTOP')">🚨 E-STOP</button>
+    </header>
+
+    <!-- 금일 생산 통계 요약 카드 대시보드 -->
+    <div class="panel">
+        <h2 style="font-size:15px; border-bottom: 1px solid #444; padding-bottom:8px; margin-bottom:12px; color:#2ecc71;">📈 금일 종합 생산성 KPI Summary</h2>
+        <div class="summary-grid">
+            <div class="summary-card">
+                <div class="summary-title">총 검사 수량</div>
+                <div class="summary-val" id="summaryTotal">0 EA</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-title">직행 수율 (Yield)</div>
+                <div class="summary-val" style="color:#2ecc71;" id="summaryYield">100.0%</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-title">양품 수량 (OK)</div>
+                <div class="summary-val" style="color:#2ecc71;" id="summaryOk">0 EA</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-title">불량 수량 (NG)</div>
+                <div class="summary-val" style="color:#e74c3c;" id="summaryNg">0 EA</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h2 style="font-size:15px; color:#2ecc71;">📝 최근 검사 이력 (SQLite DB)</h2>
+            <a href="/api/history/download_csv" class="btn-download">📥 CSV 데이터 내보내기</a>
+        </div>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>시간</th>
+                        <th>종류(볼트/콘센트)</th>
+                        <th>서브항목</th>
+                        <th>일치율(%)</th>
+                        <th>결과</th>
+                    </tr>
+                </thead>
+                <tbody id="historyTable">
+                    <tr><td colspan="6" style="text-align:center;">데이터를 로딩 중입니다...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // 실시간 KPI 요약 수치 및 DB 테이블 데이터 수신 함수
+        async function loadHistory() {
+            try {
+                // 1. KPI 요약 데이터 실시간 수신
+                const statusRes = await fetch('/api/robot/status');
+                const statusData = await statusRes.json();
+                
+                document.getElementById('summaryTotal').innerText = `${statusData.total_count} EA`;
+                document.getElementById('summaryYield').innerText = `${statusData.yield_rate}%`;
+                document.getElementById('summaryOk').innerText = `${statusData.ok_count} EA`;
+                document.getElementById('summaryNg').innerText = `${statusData.ng_count} EA`;
+
+                // 2. DB 이력 데이터 수신 및 테이블 렌더링
+                const res = await fetch('/api/history/data');
+                const data = await res.json();
+                const tbody = document.getElementById('historyTable');
+                
+                if(data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">저장된 이력이 없습니다.</td></tr>';
+                    return;
+                }
+                
+                tbody.innerHTML = data.map(r => `
+                    <tr>
+                        <td>${r.id}</td>
+                        <td>${r.timestamp}</td>
+                        <td>${r.item_type}</td>
+                        <td>${r.item_index}</td>
+                        <td>${r.measured_value}</td>
+                        <td style="color:${r.result === 'OK' ? '#2ecc71':'#e74c3c'}; font-weight:bold;">${r.result}</td>
+                    </tr>
+                `).join('');
+            } catch(e){
+                console.error("이력 로딩 오류:", e);
+            }
+        }
+
+        async function sendCommand(cmd) { 
+            fetch('/api/robot/command', { method:'POST', body: JSON.stringify({command: cmd}) }); 
+        }
+
+        // 페이지 진입 즉시 로딩 후 1초 간격 실시간 자동 동기화
+        loadHistory();
+        setInterval(loadHistory, 1000);
+    </script>
+</body>
+</html>

@@ -1,3 +1,11 @@
+"""레거시 음성 스택용 robot_command 액션 중계기.
+
+현재 프로젝트의 주 음성 경로는 ``hmi.app_v5`` 안에 통합되어 있어 이 노드가
+필수는 아니다. 다만 기존 ``/get_keyword`` 서비스 기반 음성 스택과 호환해야 할
+때는 이 노드가 intent/tools/targets를 받아 ``robot_command_server`` 액션으로
+전달한다.
+"""
+
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
@@ -25,8 +33,9 @@ class VoiceCommandDispatcherNode(Node):
         )
 
         self.get_logger().info(
-            "VoiceCommandDispatcherNode started. "
-            "supported voice flows=[BOLT_ASSEMBLE, INSPECT_FASTEN, CONNECTOR_INSPECT]"
+            "VoiceCommandDispatcherNode started. supported voice flows="
+            "[BOLT_ASSEMBLE, INSPECT_FASTEN, CONNECTOR_INSPECT, "
+            "TOOL_FETCH, TOOL_CLEANUP]"
         )
 
     def request_voice_command(self):

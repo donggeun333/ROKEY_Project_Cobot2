@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>PAGE 1: 메인 공정 모니터링 - HMI</title>
+    <style>
+        /* 기본 레이아웃 스타일 설정 */
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', sans-serif; background-color: #1a1a1a; color: #fff; padding: 15px; }
+        
+        /* 공통 헤더 스타일 설정 */
+        header { display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 12px 20px; border-radius: 8px; margin-bottom: 15px; border-left: 5px solid #00adb5; }
+        .nav-btns { display: flex; gap: 8px; }
+        .btn-nav { padding: 8px 14px; background: #333; color: #fff; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 13px; }
+        .btn-nav.active { background: #00adb5; }
+        .btn-estop-header { background: #e74c3c; color: #fff; font-weight: bold; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; }
+        
+        /* 2분할 대시보드 그리드 - 높이 맞춤 유지 */
+        .grid-container { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 15px; align-items: stretch; }
+        .panel { background: #2a2a2a; border-radius: 8px; padding: 15px; border: 1px solid #3d3d3d; }
+        .panel h2 { font-size: 15px; border-bottom: 1px solid #444; padding-bottom: 8px; margin-bottom: 12px; color: #00adb5; }
+        
+        /* 좌측 패널 전용: 비전 뷰 높이 상향 및 유연한 높이 동기화 */
+        .panel-left { display: flex; flex-direction: column; height: 100%; }
+        .camera-view { width: 100%; flex: 1; min-height: 480px; background: #000; border-radius: 6px; overflow: hidden; position: relative; }
+        
+        /* 우측 패널 컨테이너 */
+        .right-column { display: flex; flex-direction: column; gap: 15px; }
+
+        /* Tact Time 및 수율 KPI 스타일 */
+        .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+        .kpi-card { background: #333; padding: 10px; border-radius: 6px; border: 1px solid #444; text-align: center; }
+        .kpi-title { font-size: 11px; color: #aaa; margin-bottom: 4px; }
+        .kpi-value { font-size: 18px; font-weight: bold; color: #00adb5; }
+        .progress-bg { background: #444; height: 6px; border-radius: 3px; overflow: hidden; margin-top: 6px; }
+        .progress-fill { background: #00adb5; width: 0%; height: 100%; transition: width 0.3s; }
+
+        /* 음성 및 실시간 로그 박스 - 높이 상향 수정 (100px -> 220px) */
+        .stt-box { background: #333; padding: 10px; border-radius: 6px; display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .log-box { height: 220px; background: #111; border-radius: 6px; padding: 10px; overflow-y: auto; font-family: monospace; font-size: 12px; color: #aaa; }
+
+        /* 공구 작업(전달/정리) 상태 - 진행중인 공정과 작업상태 두 줄만 */
+        .tool-row { display: flex; align-items: baseline; gap: 10px; background: #333; padding: 10px; border-radius: 6px; }
+        .tool-row + .tool-row { margin-top: 8px; }
+        .tool-label { font-size: 11px; color: #aaa; flex: 0 0 90px; }
+        .tool-value { font-size: 15px; font-weight: bold; color: #eee; }
+        /* 상태별 색: 진행 중(청록) / 개입 필요(주황) / 완료(초록) / 실패(빨강) */
+        .tone-idle { color: #888; }
+        .tone-busy { color: #00adb5; }
+        .tone-done { color: #2ecc71; }
+        .tone-fail { color: #e74c3c; }
+        /* 사용자가 공구를 잡아당겨야 진행되는 구간은 놓치면 안 되므로 깜빡인다 */
+        .tone-attention { color: #f39c12; animation: toolBlink 1.2s ease-in-out infinite; }
+        .tool-done-names { font-size: 11px; color: #888; min-height: 14px; }
+        @keyframes toolBlink { 50% { opacity: 0.35; } }
+
+        /* Auto-Switching 3D 분석 자동 팝업 모달 스타일 */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 999; justify-content: center; align-items: center; }
+        .modal-content { width: 90%; height: 85%; background: #2a2a2a; border-radius: 10px; border: 3px solid #e74c3c; display: flex; flex-direction: column; overflow: hidden; }
+        .modal-header { background: #e74c3c; color: #fff; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; font-weight: bold; }
+        .btn-modal-close { background: #1a1a1a; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .modal-body { flex: 1; border: none; }
+    </style>
+</head>
+<body>
+
+    <!-- Global Navigation Header -->
+    <header>
+        <h1 style="font-size:18px; color:#00adb5;">🤖 ROKEY 조립 모니터링</h1>
+        <div class="nav-btns">
+            <a href="/admin/dashboard" class="btn-nav active">1. 공정 모니터링</a>
+            <a href="/admin/viewer3d" class="btn-nav">2. 3D 품질분석</a>
+            <a href="/admin/control" class="btn-nav">3. 수동 제어</a>
+            <a href="/admin/history" class="btn-nav">4. 이력/DB</a>
+        </div>
+        <button class="btn-estop-header" onclick="sendCommand('ESTOP')">🚨 E-STOP</button>
+    </header>
+
+    <!-- 메인 2열 그리드 레이아웃 -->
+    <div class="grid-container">
+        <!-- 좌측: 2D 비전 카메라 시각 피드 -->
+        <div class="panel panel-left">
+            <h2>📷 실시간 비전 공정 가이드</h2>
+            <div class="camera-view">
+                <img src="/video_feed" style="width:100%; height:100%; object-fit:contain;" alt="Camera Stream">
+            </div>
+        </div>
+
+        <!-- 우측: 실시간 Tact Time / 생산수율 / 체결 현황 -->
+        <div class="right-column">
+            <div class="panel">
+                <h2>⏱️ 실시간 Tact Time & 생산 수율</h2>
+                <div class="kpi-grid">
+                    <div class="kpi-card">
+                        <div class="kpi-title">공정 Tact Time</div>
+                        <div class="kpi-value" id="tactTimeText">0s / 10s</div>
+                        <div class="progress-bg"><div class="progress-fill" id="tactProgress"></div></div>
+                        <div style="font-size:10px; color:#aaa; margin-top:6px;">진행 중: <span id="categoryText">-</span></div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-title">직행 수율 (Yield)</div>
+                        <div class="kpi-value" style="color:#2ecc71;" id="yieldText">100.0%</div>
+                        <div style="font-size:10px; color:#aaa; margin-top:4px;">
+                            양품: <span id="okCount" style="color:#2ecc71;">0</span> / 불량: <span id="ngCount" style="color:#e74c3c;">0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 음성 안내 및 실시간 로그 -->
+            <div class="panel">
+                <h2>🎤 음성 안내 & 실시간 로그</h2>
+                <div class="stt-box">
+                    <span style="color:#e74c3c;">🎙️</span>
+                    <span id="sttText">음성 수신 대기 중...</span>
+                </div>
+                <div class="log-box" id="logBox"></div>
+            </div>
+
+            <!-- 작업 상태 (공구 전달/정리 + 볼트 체결) -->
+            <div class="panel">
+                <h2>🔧 작업 상태</h2>
+                <div class="tool-row">
+                    <span class="tool-label">진행중인 공정</span>
+                    <span class="tool-value" id="toolJob">대기 중</span>
+                </div>
+                <div class="tool-row">
+                    <span class="tool-label">작업상태</span>
+                    <span class="tool-value tone-idle" id="toolState">공구 작업 없음</span>
+                </div>
+                <!-- 진행률은 분모가 있는 공구 정리(5종)에서만 나온다 -->
+                <div class="tool-row" style="flex-direction:column; align-items:stretch; gap:6px;">
+                    <div style="display:flex; align-items:baseline; gap:10px;">
+                        <span class="tool-label">진행률</span>
+                        <span class="tool-value" id="toolProgressText">-</span>
+                    </div>
+                    <div class="progress-bg"><div class="progress-fill" id="toolProgressFill"></div></div>
+                    <div class="tool-done-names" id="toolDoneNames"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Auto-Switching 3D 뷰어 모달 팝업 -->
+    <div class="modal-overlay" id="ngModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span>⚠️ [자동 분석 전환] 검사 불량(NG) 감지! - 3D Point Cloud 정밀 분석</span>
+                <button class="btn-modal-close" onclick="closeNgModal()">닫기 (Close)</button>
+            </div>
+            <iframe src="/admin/viewer3d" class="modal-body"></iframe>
+        </div>
+    </div>
+
+    <script>
+        let isModalOpen = false;
+
+        async function updateStatus() {
+            try {
+                const res = await fetch('/api/robot/status');
+                const data = await res.json();
+                
+                // 1. Tact Time 정수형 표기 (예: 0s / 10s)
+                document.getElementById('tactTimeText').innerText = `${parseInt(data.tact_time)}s / ${parseInt(data.target_tact)}s`;
+                const progressPct = Math.min((data.tact_time / data.target_tact) * 100, 100);
+                document.getElementById('tactProgress').style.width = `${progressPct}%`;
+                
+                document.getElementById('yieldText').innerText = `${data.yield_rate}%`;
+                document.getElementById('okCount').innerText = data.ok_count;
+                document.getElementById('ngCount').innerText = data.ng_count;
+                const categoryLabel = data.category === 'bolt' ? '볼트 조립' : (data.category === 'outlet' ? '콘센트 조립' : '대기 중');
+                document.getElementById('categoryText').innerText = categoryLabel;
+
+                // 2. 음성 및 로그 업데이트
+                document.getElementById('sttText').innerText = data.stt;
+                if(data.logs) {
+                    document.getElementById('logBox').innerHTML = data.logs.map(l => `<p>${l}</p>`).join('');
+                }
+
+                // 3. 공구 작업 상태 (진행중인 공정 / 작업상태)
+                document.getElementById('toolJob').innerText = data.tool_job || '대기 중';
+                const toolState = document.getElementById('toolState');
+                toolState.innerText = data.tool_state || '공구 작업 없음';
+                toolState.className = `tool-value tone-${data.tool_tone || 'idle'}`;
+
+                // 진행률: 공구 정리일 때만 내려온다. 없으면 막대를 비운다.
+                const prog = data.tool_progress;
+                if (prog) {
+                    document.getElementById('toolProgressText').innerText = `${prog.done} / ${prog.total}`;
+                    document.getElementById('toolProgressFill').style.width = `${(prog.done / prog.total) * 100}%`;
+                    document.getElementById('toolDoneNames').innerText =
+                        prog.names.length ? `완료: ${prog.names.join(', ')}` : '';
+                } else {
+                    document.getElementById('toolProgressText').innerText = '-';
+                    document.getElementById('toolProgressFill').style.width = '0%';
+                    document.getElementById('toolDoneNames').innerText = '';
+                }
+
+                // 4. Auto-Switching 불량 감지 팝업
+                if (data.has_ng && !isModalOpen) {
+                    openNgModal();
+                }
+            } catch(e) {
+                console.error("통신 에러:", e);
+            }
+        }
+
+        function openNgModal() {
+            isModalOpen = true;
+            document.getElementById('ngModal').style.display = 'flex';
+        }
+
+        function closeNgModal() {
+            document.getElementById('ngModal').style.display = 'none';
+            setTimeout(() => { isModalOpen = false; }, 3000);
+        }
+
+        async function sendCommand(cmd) {
+            await fetch('/api/robot/command', { method:'POST', body: JSON.stringify({command: cmd}) });
+        }
+
+        setInterval(updateStatus, 1000); // 1초마다 갱신
+    </script>
+</body>
+</html>

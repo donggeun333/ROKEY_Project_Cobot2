@@ -1,0 +1,40 @@
+m0609_hand_eye_tf_broadcaster:
+  ros__parameters:
+    # Calibration_Tutorial/handeye_calibration.py가 생성한 원본.
+    transform_path: /home/jwanryu/corecode/Calibration_Tutorial/T_gripper2camera.npy
+
+    # 이 행렬을 생성할 때 컨트롤러에서 활성화한 실제 TCP preset.
+    # 당시 Tool Weight preset은 "Tool Weight"였다.
+    parent_frame: GripperDA_v1
+
+    # URDF가 소유한 camera_color_optical_frame과 TF authority가 충돌하지 않게
+    # 보정 전용 virtual camera frame을 사용한다.
+    child_frame: calibrated_camera_color_optical_frame
+
+    # parent_from_child:
+    #   P_parent = M_stored @ P_camera
+    # child_from_parent:
+    #   저장 파일을 한 번 역행렬로 바꿔 위 규약으로 사용
+    stored_direction: parent_from_child
+
+    # auto 추론을 하지 않는다. m 또는 mm 중 반드시 명시한다.
+    translation_unit: mm
+
+m0609_tcp_pose_tf_broadcaster:
+  ros__parameters:
+    robot_namespace: dsr01
+    base_frame: base_link
+    tcp_frame: GripperDA_v1
+
+    # 티칭 펜던트에 등록된 이름과 대소문자까지 정확히 같아야 한다.
+    tcp_name: GripperDA_v1
+    tool_name: "Tool Weight"
+    # TF broadcaster는 controller preset을 변경하지 않는다. 실제 이동 직전
+    # tool_sorter task manager가 Tool/TCP를 선택하고 다시 검증한다.
+    configure_controller: false
+
+    publish_rate_hz: 20.0
+    service_wait_sec: 12.0
+    service_timeout_sec: 1.0
+    # 서비스 왕복이 이 값보다 느리면 시각 오차가 큰 TF sample을 폐기한다.
+    max_sample_latency_ms: 100.0

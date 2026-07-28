@@ -1,3 +1,10 @@
+"""기준 PCD와 검사 PCD를 비교하는 ROS 노드.
+
+``pointcloud_pipeline``이 finalize로 저장한 결과 파일을 입력으로 받아,
+voxel 점유 기반 유사도/누락/추가 비율을 계산한다. HMI와 robot_control은 이
+노드의 compare 서비스 결과 문자열을 요약 정보로 사용한다.
+"""
+
 from __future__ import annotations
 
 from dataclasses import replace
@@ -27,12 +34,12 @@ DEFAULT_REFERENCE_BY_OBJECT = {
 }
 OBJECT_ROI_BOUNDS = {
     "multitap": (
-        np.array([0.28, 0.01, -0.03], dtype=np.float64),
-        np.array([0.46, 0.20, 0.10], dtype=np.float64),
+        np.array([0.31, 0.055, 0.015], dtype=np.float64),
+        np.array([0.413, 0.159, 0.10], dtype=np.float64),
     ),
     "bolt": (
-        np.array([0.28, -0.20, -0.03], dtype=np.float64),
-        np.array([0.46, 0.00, 0.10], dtype=np.float64),
+        np.array([0.308, -0.20, 0.0], dtype=np.float64),
+        np.array([0.42, 0.00, 0.10], dtype=np.float64),
     ),
 }
 

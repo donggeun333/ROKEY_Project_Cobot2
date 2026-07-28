@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>PAGE 3: 로봇 수동 제어 - HMI</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', sans-serif; background-color: #1a1a1a; color: #fff; padding: 15px; }
+        
+        header { display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 12px 20px; border-radius: 8px; margin-bottom: 15px; border-left: 5px solid #3498db; }
+        .nav-btns { display: flex; gap: 8px; }
+        .btn-nav { padding: 8px 14px; background: #333; color: #fff; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 13px; }
+        .btn-nav.active { background: #3498db; }
+        .btn-estop-header { background: #e74c3c; color: #fff; font-weight: bold; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; }
+        
+        /* 2분할 대시보드 그리드 레이아웃 */
+        .control-grid { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 15px; align-items: stretch; }
+        .panel { background: #2a2a2a; border-radius: 8px; padding: 15px; border: 1px solid #3d3d3d; }
+        .panel-left { display: flex; flex-direction: column; height: 100%; justify-content: space-between; }
+        .right-column { display: flex; flex-direction: column; gap: 15px; height: 100%; }
+        .right-column .panel { display: flex; flex-direction: column; height: 100%; flex: 1; }
+        
+        .joint-control-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 15px; flex: 1; justify-content: space-around; }
+        .joint-control-item { background: #333; padding: 10px 14px; border-radius: 6px; display: flex; align-items: center; gap: 8px; border: 1px solid #444; }
+        .joint-label { font-weight: bold; color: #3498db; width: 30px; }
+        
+        /* 수치 직접 입력창 스타일 */
+        .joint-input-num { width: 70px; background: #222; color: #2ecc71; border: 1px solid #555; border-radius: 4px; padding: 5px; font-weight: bold; text-align: center; font-size: 14px; }
+        
+        .btn-jog { width: 30px; height: 30px; background: #444; color: #fff; border: 1px solid #555; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 16px; display: flex; justify-content: center; align-items: center; }
+        .btn-jog:hover { background: #3498db; border-color: #3498db; }
+        
+        .slider-joint { flex: 1; accent-color: #3498db; cursor: pointer; }
+        
+        .btn-ctrl { padding: 14px; width: 100%; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; margin-bottom: 10px; font-size: 14px; }
+        .btn-move { background: #2ecc71; color: #1a1a1a; font-weight: bold; font-size: 15px; margin-bottom: 0; }
+        .btn-move:hover { background: #27ae60; color: #fff; }
+        
+        .step-select-box { display: flex; align-items: center; gap: 10px; background: #333; padding: 8px 12px; border-radius: 6px; margin-bottom: 15px; font-size: 13px; border: 1px solid #444; }
+        .step-select-box select { background: #222; color: #fff; border: 1px solid #555; padding: 4px 8px; border-radius: 4px; }
+
+        /* 로그 터미널 스타일 */
+        .terminal-header { display: flex; justify-content: space-between; align-items: center; margin: 16px 0 8px; padding-top: 12px; border-top: 1px solid #444; }
+        .terminal-header h2 { font-size: 14px; color: #2ecc71; margin: 0; }
+        .terminal-header-btns { display: flex; align-items: center; gap: 8px; }
+        .terminal-status-dot { width: 8px; height: 8px; border-radius: 50%; background: #555; display: inline-block; }
+        .terminal-status-dot.live { background: #2ecc71; box-shadow: 0 0 6px #2ecc71; animation: blink 1.5s infinite; }
+        @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+        .btn-clear-log { background: #444; color: #ccc; border: 1px solid #666; padding: 4px 8px; border-radius: 4px; font-size: 10px; cursor: pointer; }
+        .btn-clear-log:hover { background: #555; }
+        
+        /* [수정] 창 확장 방지 및 내부 스크롤 적용 */
+        .terminal-box {
+            background: #0d0d0d;
+            border: 1px solid #2ecc71;
+            border-radius: 6px;
+            flex: none;
+            height: 220px;
+            min-height: 220px;
+            max-height: 220px;
+            overflow-y: auto;
+            padding: 8px 10px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 11.5px;
+            line-height: 1.55;
+        }
+        .terminal-box::-webkit-scrollbar { width: 7px; }
+        .terminal-box::-webkit-scrollbar-track { background: #0d0d0d; }
+        .terminal-box::-webkit-scrollbar-thumb { background: #2ecc71; border-radius: 4px; }
+        .term-line { white-space: pre-wrap; word-break: break-all; }
+        .term-prompt { color: #2ecc71; }
+        .term-error { color: #e74c3c; }
+        .term-warn { color: #f39c12; }
+        .term-ok { color: #2ecc71; }
+        .term-cmd { color: #3498db; font-weight: bold; }
+        .term-default { color: #ddd; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1 style="font-size:18px; color:#3498db;">⚙️ 로봇 수동 제어 센터</h1>
+        <div class="nav-btns">
+            <a href="/admin/dashboard" class="btn-nav">1. 공정 모니터링</a>
+            <a href="/admin/viewer3d" class="btn-nav">2. 3D 품질분석</a>
+            <a href="/admin/control" class="btn-nav active">3. 수동 제어</a>
+            <a href="/admin/history" class="btn-nav">4. 이력/DB</a>
+        </div>
+        <button class="btn-estop-header" onclick="sendCommand('ESTOP')">🚨 E-STOP</button>
+    </header>
+
+    <div class="control-grid">
+        <div class="panel panel-left">
+            <div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                    <h2 style="font-size:16px; color:#3498db;">🦾 관절 직접 조절 (Joint Control)</h2>
+                    <span id="liveJointBadge" style="font-size:11px; color:#2ecc71; display:flex; align-items:center; gap:5px;">
+                        <span style="width:7px; height:7px; border-radius:50%; background:#2ecc71; display:inline-block;"></span>
+                        실시간 반영 중
+                    </span>
+                </div>
+
+                <div class="step-select-box">
+                    <span>➕/➖ 버튼 증감 단위:</span>
+                    <select id="stepSelect">
+                        <option value="1">1° (미세 조절)</option>
+                        <option value="5" selected>5° (기본)</option>
+                        <option value="10">10° (대폭 이동)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- J1 ~ J6 직접 입력 및 조그 컨트롤러 -->
+            <div class="joint-control-list">
+                <!-- J1 -->
+                <div class="joint-control-item">
+                    <span class="joint-label">J1</span>
+                    <button class="btn-jog" onclick="adjJoint(0, -1)">-</button>
+                    <input type="range" class="slider-joint" id="sliderJ1" min="-360" max="360" step="0.1" value="0" oninput="onSliderInput(0, this.value)">
+                    <button class="btn-jog" onclick="adjJoint(0, 1)">+</button>
+                    <input type="number" class="joint-input-num" id="inputJ1" value="0.0" step="0.1" min="-360" max="360" oninput="markUserInteraction()" onchange="onDirectInput(0, this.value)">°
+                </div>
+                <!-- J2 -->
+                <div class="joint-control-item">
+                    <span class="joint-label">J2</span>
+                    <button class="btn-jog" onclick="adjJoint(1, -1)">-</button>
+                    <input type="range" class="slider-joint" id="sliderJ2" min="-95" max="95" step="0.1" value="0" oninput="onSliderInput(1, this.value)">
+                    <button class="btn-jog" onclick="adjJoint(1, 1)">+</button>
+                    <input type="number" class="joint-input-num" id="inputJ2" value="0.0" step="0.1" min="-95" max="95" oninput="markUserInteraction()" onchange="onDirectInput(1, this.value)">°
+                </div>
+                <!-- J3 -->
+                <div class="joint-control-item">
+                    <span class="joint-label">J3</span>
+                    <button class="btn-jog" onclick="adjJoint(2, -1)">-</button>
+                    <input type="range" class="slider-joint" id="sliderJ3" min="-135" max="135" step="0.1" value="0" oninput="onSliderInput(2, this.value)">
+                    <button class="btn-jog" onclick="adjJoint(2, 1)">+</button>
+                    <input type="number" class="joint-input-num" id="inputJ3" value="0.0" step="0.1" min="-135" max="135" oninput="markUserInteraction()" onchange="onDirectInput(2, this.value)">°
+                </div>
+                <!-- J4 -->
+                <div class="joint-control-item">
+                    <span class="joint-label">J4</span>
+                    <button class="btn-jog" onclick="adjJoint(3, -1)">-</button>
+                    <input type="range" class="slider-joint" id="sliderJ4" min="-360" max="360" step="0.1" value="0" oninput="onSliderInput(3, this.value)">
+                    <button class="btn-jog" onclick="adjJoint(3, 1)">+</button>
+                    <input type="number" class="joint-input-num" id="inputJ4" value="0.0" step="0.1" min="-360" max="360" oninput="markUserInteraction()" onchange="onDirectInput(3, this.value)">°
+                </div>
+                <!-- J5 -->
+                <div class="joint-control-item">
+                    <span class="joint-label">J5</span>
+                    <button class="btn-jog" onclick="adjJoint(4, -1)">-</button>
+                    <input type="range" class="slider-joint" id="sliderJ5" min="-135" max="135" step="0.1" value="0" oninput="onSliderInput(4, this.value)">
+                    <button class="btn-jog" onclick="adjJoint(4, 1)">+</button>
+                    <input type="number" class="joint-input-num" id="inputJ5" value="0.0" step="0.1" min="-135" max="135" oninput="markUserInteraction()" onchange="onDirectInput(4, this.value)">°
+                </div>
+                <!-- J6 -->
+                <div class="joint-control-item">
+                    <span class="joint-label">J6</span>
+                    <button class="btn-jog" onclick="adjJoint(5, -1)">-</button>
+                    <input type="range" class="slider-joint" id="sliderJ6" min="-360" max="360" step="0.1" value="0" oninput="onSliderInput(5, this.value)">
+                    <button class="btn-jog" onclick="adjJoint(5, 1)">+</button>
+                    <input type="number" class="joint-input-num" id="inputJ6" value="0.0" step="0.1" min="-360" max="360" oninput="markUserInteraction()" onchange="onDirectInput(5, this.value)">°
+                </div>
+            </div>
+
+            <button class="btn-ctrl btn-move" onclick="sendJointMove()">🚀 설정된 관절 각도로 이동 (Move Joint)</button>
+        </div>
+
+        <div class="right-column">
+            <div class="panel">
+                <h2 style="font-size:16px; margin-bottom:12px;">🕹️ 매크로 제어 명령</h2>
+                <button class="btn-ctrl" style="background:#3498db; color:#fff;" onclick="sendCommand('RETRY')">🔄 재검사 명령 (RETRY)</button>
+                <button class="btn-ctrl" style="background:#e67e22; color:#fff;" onclick="sendCommand('HOME')">🏠 홈 위치로 이동 (HOME)</button>
+                <button class="btn-ctrl" style="background:#e74c3c; color:#fff;" onclick="sendCommand('ESTOP')">🚨 비상 정지 (ESTOP)</button>
+
+                <!-- 실시간 로그 터미널 -->
+                <div class="terminal-header">
+                    <h2>🖥️ SYSTEM LOG</h2>
+                    <div class="terminal-header-btns">
+                        <span class="terminal-status-dot live" id="termStatusDot"></span>
+                        <span style="font-size:11px; color:#888;" id="termStatusText">LIVE</span>
+                        <button class="btn-clear-log" onclick="clearTerminal()">🧹 CLEAR</button>
+                    </div>
+                </div>
+                <div class="terminal-box" id="terminalBox"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let targetJoints = [0, 0, 0, 0, 0, 0];
+
+        let lastUserInteractionAt = 0;
+        const USER_INTERACTION_HOLD_MS = 3000;
+        function markUserInteraction() {
+            lastUserInteractionAt = Date.now();
+        }
+
+        const JOINT_LIMITS = [
+            [-360, 360], [-95, 95], [-135, 135],
+            [-360, 360], [-135, 135], [-360, 360]
+        ];
+        function clampJoint(index, val) {
+            const [lo, hi] = JOINT_LIMITS[index];
+            return Math.max(lo, Math.min(hi, val));
+        }
+
+        const MAX_TERM_LINES = 200;
+        let termLines = [];
+        let lastServerLogCount = 0;
+        let userScrolledUp = false;
+
+        const terminalBox = document.getElementById('terminalBox');
+        terminalBox.addEventListener('scroll', () => {
+            const nearBottom = terminalBox.scrollHeight - terminalBox.scrollTop - terminalBox.clientHeight < 30;
+            userScrolledUp = !nearBottom;
+        });
+
+        function classifyLine(msg) {
+            if (msg.includes('❌') || msg.includes('오류') || msg.includes('실패')) return 'term-error';
+            if (msg.includes('⚠️')) return 'term-warn';
+            if (msg.includes('✅') || msg.includes('완료') || msg.includes('성공')) return 'term-ok';
+            if (msg.includes('🚀') || msg.includes('명령')) return 'term-cmd';
+            return 'term-default';
+        }
+
+        function appendTermLine(rawText) {
+            termLines.push(rawText);
+            if (termLines.length > MAX_TERM_LINES) {
+                termLines = termLines.slice(termLines.length - MAX_TERM_LINES);
+            }
+            renderTerminal();
+        }
+
+        function renderTerminal() {
+            terminalBox.innerHTML = termLines.map(line => {
+                const cls = classifyLine(line);
+                return `<div class="term-line ${cls}"><span class="term-prompt">&gt;</span> ${escapeHtml(line)}</div>`;
+            }).join('');
+            if (!userScrolledUp) {
+                terminalBox.scrollTop = terminalBox.scrollHeight;
+            }
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function clearTerminal() {
+            termLines = [];
+            lastServerLogCount = 0;
+            renderTerminal();
+        }
+
+        function syncServerLogs(serverLogs) {
+            if (!serverLogs || serverLogs.length === 0) return;
+            const oldestFirst = [...serverLogs].reverse();
+
+            if (termLines.length === 0) {
+                termLines = oldestFirst.slice(-MAX_TERM_LINES);
+                lastServerLogCount = serverLogs.length;
+                renderTerminal();
+                return;
+            }
+
+            const lastShown = termLines[termLines.length - 1];
+            const idx = oldestFirst.lastIndexOf(lastShown);
+            const newOnes = idx >= 0 ? oldestFirst.slice(idx + 1) : oldestFirst;
+            newOnes.forEach(line => appendTermLine(line));
+        }
+
+        async function fetchStatus() {
+            try {
+                const res = await fetch('/api/robot/status');
+                const data = await res.json();
+                
+                const isUserActive = (Date.now() - lastUserInteractionAt) < USER_INTERACTION_HOLD_MS;
+                if (data.joints && data.joints.length >= 6 && !isUserActive) {
+                    targetJoints = [...data.joints];
+                    updateUI();
+                }
+
+                syncServerLogs(data.logs);
+                setTermLive(true);
+            } catch(e){
+                setTermLive(false);
+            }
+        }
+
+        function setTermLive(isLive) {
+            const dot = document.getElementById('termStatusDot');
+            const text = document.getElementById('termStatusText');
+            if (isLive) {
+                dot.classList.add('live');
+                text.textContent = 'LIVE';
+                text.style.color = '#888';
+            } else {
+                dot.classList.remove('live');
+                text.textContent = 'DISCONNECTED';
+                text.style.color = '#e74c3c';
+            }
+        }
+
+        function updateUI() {
+            for (let i = 0; i < 6; i++) {
+                const val = parseFloat(targetJoints[i]).toFixed(1);
+                document.getElementById(`sliderJ${i+1}`).value = val;
+                document.getElementById(`inputJ${i+1}`).value = val;
+            }
+        }
+
+        function onDirectInput(index, val) {
+            markUserInteraction();
+            let num = parseFloat(val) || 0;
+            num = clampJoint(index, num);
+            targetJoints[index] = num;
+            document.getElementById(`inputJ${index+1}`).value = num.toFixed(1);
+            document.getElementById(`sliderJ${index+1}`).value = num.toFixed(1);
+        }
+
+        function onSliderInput(index, val) {
+            markUserInteraction();
+            targetJoints[index] = parseFloat(val);
+            document.getElementById(`inputJ${index+1}`).value = parseFloat(val).toFixed(1);
+        }
+
+        function adjJoint(index, dir) {
+            markUserInteraction();
+            const step = parseFloat(document.getElementById('stepSelect').value);
+            let newVal = targetJoints[index] + (dir * step);
+            newVal = clampJoint(index, newVal);
+            targetJoints[index] = newVal;
+            updateUI();
+        }
+
+        async function sendJointMove() {
+            const cmdStr = `MOVEJ:[${targetJoints.map(j => parseFloat(j).toFixed(1)).join(',')}]`;
+            await sendCommand(cmdStr);
+        }
+
+        async function sendCommand(cmd) {
+            const stamp = new Date().toLocaleTimeString('ko-KR', { hour12: false });
+            appendTermLine(`[${stamp}] (전송) ${cmd}`);
+
+            try {
+                const res = await fetch('/api/robot/command', { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ command: cmd }) 
+                });
+                const r = await res.json();
+                const okStamp = new Date().toLocaleTimeString('ko-KR', { hour12: false });
+                appendTermLine(`[${okStamp}] (응답) ${r.message}`);
+                alert(r.message);
+            } catch(e) {
+                const errStamp = new Date().toLocaleTimeString('ko-KR', { hour12: false });
+                appendTermLine(`[${errStamp}] ❌ 명령 전송 실패: ${e}`);
+                alert("명령 전송 실패");
+            }
+        }
+
+        setInterval(fetchStatus, 1000);
+        fetchStatus();
+    </script>
+</body>
+</html>

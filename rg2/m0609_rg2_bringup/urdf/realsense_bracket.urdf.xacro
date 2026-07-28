@@ -1,0 +1,80 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="realsense_bracket">
+
+  <!-- ============================================================
+       RealSense D435/D435i Mount Bracket
+       Parent link : tool0 (end-effector)
+       Camera mount : downward-facing (−Z 방향)
+       STL unit     : mm  →  URDF unit: m
+       Bracket dims : W=94.985mm / D=11.450mm / H=120.998mm
+       Bracket mass : ~71.45g  (PLA 1240 kg/m³ 가정)
+       ============================================================ -->
+
+  <!-- ───────────── 재질 정의 ───────────── -->
+  <material name="bracket_grey">
+    <color rgba="0.5 0.5 0.5 1.0"/>
+  </material>
+
+  <material name="realsense_dark">
+    <color rgba="0.15 0.15 0.15 1.0"/>
+  </material>
+
+  <!-- ───────────── 마운트 브라켓 링크 ───────────── -->
+  <link name="bracket_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://m0609_rg2_bringup/meshes/mount_bracket.stl"
+              scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="bracket_grey"/>
+    </visual>
+
+    <collision>
+      <!-- 충돌 모델: 단순 박스로 근사 -->
+      <origin xyz="0 0 0.060499" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.094985 0.011450 0.120998"/>
+      </geometry>
+    </collision>
+
+    <inertial>
+      <!-- CoM: STL 분석 결과 (m 단위) -->
+      <origin xyz="0.008391 -0.000676 0.021166" rpy="0 0 0"/>
+      <mass value="0.07145"/>
+      <!-- 관성 텐서: 박스 근사 (PLA 1240 kg/m³) -->
+      <inertia
+        ixx="0.00008795" ixy="0.0"       ixz="0.0"
+                         iyy="0.00014089" iyz="0.0"
+                                          izz="0.00005450"/>
+    </inertial>
+  </link>
+
+  <!-- ───────────── tool0 → bracket 조인트 ───────────── -->
+  <joint name="tool0_to_bracket" type="fixed">
+    <parent link="tool0"/>
+    <child  link="bracket_link"/>
+    <!--
+      STL 구조:
+        Z축 = 브라켓 길이 방향 (플랜지~카메라 암)
+        플랜지면 = Z=+70.5mm
+        브라켓 끝 = Z=-50.37mm
+
+      목표: STL Z축 → tool0 −Y축 (브라켓이 옆으로 뻗도록)
+      xyz: 플랜지면이 tool0 원점에 오도록
+    -->
+    <origin xyz="-0.002 0.0 -0.01" rpy="0 -1.5708 1.5708"/>
+  </joint>
+
+  <!-- ───────────── RealSense D435 매크로 include ───────────── -->
+  <xacro:include filename="$(find realsense2_description)/urdf/_d435.urdf.xacro"/>
+
+  <!-- ───────────── bracket → camera 조인트 ───────────── -->
+  <!--
+  -->
+  <xacro:sensor_d435 parent="bracket_link" name="camera" use_nominal_extrinsics="true">
+    <origin xyz="0.0 -0.015 0.05" rpy="3.1416 3.1416 1.5708"/>
+  </xacro:sensor_d435>
+
+
+</robot>

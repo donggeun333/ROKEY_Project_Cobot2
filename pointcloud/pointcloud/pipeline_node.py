@@ -1,3 +1,10 @@
+"""다중 시점 캡처와 ICP 누적 병합을 담당하는 ROS 노드.
+
+``robot_control.pointcloud_inspector_task``가 이 노드의 서비스들을 호출한다.
+각 capture 요청은 최신 PointCloud2를 받아 누적 점군에 즉시 ICP 병합하고,
+finalize는 ROI crop/outlier 제거/DBSCAN 후 최종 PCD를 저장한다.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -13,6 +20,7 @@ import open3d as o3d
 import rclpy
 from rclpy.duration import Duration
 from rclpy.node import Node
+from rcl_interfaces.msg import SetParametersResult
 from rclpy.time import Time
 from scipy.spatial.transform import Rotation
 from sensor_msgs.msg import PointCloud2, PointField
@@ -43,12 +51,12 @@ DEFAULT_SAVE_MERGED = False
 DEFAULT_SAVE_FILTERED = True
 OBJECT_ROI_BOUNDS = {
     "multitap": (
-        np.array([0.28, 0.01, 0.015], dtype=np.float64),
-        np.array([0.46, 0.20, 0.10], dtype=np.float64),
+        np.array([0.31, 0.055, 0.015], dtype=np.float64),
+        np.array([0.413, 0.159, 0.10], dtype=np.float64),
     ),
     "bolt": (
-        np.array([0.28, -0.20, 0], dtype=np.float64),
-        np.array([0.46, 0.00, 0.10], dtype=np.float64),
+        np.array([0.308, -0.20, 0], dtype=np.float64),
+        np.array([0.42, 0.00, 0.10], dtype=np.float64),
     ),
 }
 
@@ -137,7 +145,7 @@ class PointCloudPipelineNode(Node):
         self.save_capture = self.get_bool_param("save_capture", DEFAULT_SAVE_CAPTURE)
         self.save_merged = self.get_bool_param("save_merged", DEFAULT_SAVE_MERGED)
         self.save_filtered = self.get_bool_param("save_filtered", DEFAULT_SAVE_FILTERED)
-        self.icp_voxel_size = self.get_float_param("icp_voxel_size", 0.002)
+        self.icp_voxel_size = self.get_float_param("icp_voxel_size", 0.001)
         self.normal_radius = self.get_float_param("normal_radius", 0.008)
         self.trigger_comparison_on_finalize = self.get_bool_param(
             "trigger_comparison_on_finalize",
@@ -157,10 +165,12 @@ class PointCloudPipelineNode(Node):
         )
         self.coarse_iterations = self.get_int_param("coarse_iterations", 60)
         self.fine_iterations = self.get_int_param("fine_iterations", 100)
-        self.min_fitness = self.get_float_param("min_fitness", 0.4)
-        self.max_rmse = self.get_float_param("max_rmse", 0.005)
-        self.outlier_nb_neighbors = self.get_int_param("outlier_nb_neighbors", 30)
-        self.outlier_std_ratio = self.get_float_param("outlier_std_ratio", 1.5)
+        # 멀티탭 스캔은 시야 변화가 커서 볼트보다 ICP 품질 편차가 크다.
+        # 기본 허용치를 약간 완화해 7~8번째 캡처에서 과도하게 중단되지 않도록 한다.
+        self.min_fitness = self.get_float_param("min_fitness", 0.3)
+        self.max_rmse = self.get_float_param("max_rmse", 0.008)
+        self.outlier_nb_neighbors = self.get_int_param("outlier_nb_neighbors", 10)
+        self.outlier_std_ratio = self.get_float_param("outlier_std_ratio", 2.0)
         self.roi_by_object = self.build_roi_by_object()
         self.roi_min, self.roi_max = self.resolve_roi_bounds()
         self.dbscan_eps = self.get_float_param("dbscan_eps", 0.012)
@@ -217,6 +227,7 @@ class PointCloudPipelineNode(Node):
             f"roi_max={self.roi_max.tolist()}, services=~/reset, ~/capture, ~/finalize, "
             f"comparison_service={self.comparison_service_name}"
         )
+        self.add_on_set_parameters_callback(self.handle_parameter_update)
 
     def get_param(self, name: str, default):
         if not self.has_parameter(name):
@@ -237,6 +248,36 @@ class PointCloudPipelineNode(Node):
 
     def get_array_param(self, name: str, default: np.ndarray) -> np.ndarray:
         return np.array(self.get_param(name, default.tolist()), dtype=np.float64)
+
+    def handle_parameter_update(self, parameters):
+        updated_object_type = self.object_type
+        updated_filtered_dir = self.filtered_dir
+
+        for parameter in parameters:
+            if parameter.name == "object_type":
+                updated_object_type = str(parameter.value).strip()
+            elif parameter.name == "filtered_dir":
+                updated_filtered_dir = Path(str(parameter.value).strip()).resolve()
+
+        if updated_object_type not in self.roi_by_object:
+            return SetParametersResult(
+                successful=False,
+                reason=(
+                    "Invalid object_type. Expected one of: "
+                    f"{', '.join(self.roi_by_object)}."
+                ),
+            )
+
+        self.object_type = updated_object_type
+        self.filtered_dir = updated_filtered_dir
+        self.filtered_dir.mkdir(parents=True, exist_ok=True)
+        self.roi_min, self.roi_max = self.resolve_roi_bounds()
+
+        self.get_logger().info(
+            "Updated runtime parameters: "
+            f"object_type={self.object_type}, filtered_dir={self.filtered_dir}"
+        )
+        return SetParametersResult(successful=True)
 
     def build_roi_by_object(self) -> dict[str, tuple[np.ndarray, np.ndarray]]:
         return {

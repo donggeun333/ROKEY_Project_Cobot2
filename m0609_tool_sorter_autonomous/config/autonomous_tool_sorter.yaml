@@ -1,0 +1,37 @@
+# 노드 이름을 특정하지 않는다 — 이유는 tool_sorter.yaml의 /** 블록 주석 참고.
+# main_controller가 이름을 바꿔 띄우면 특정 이름 키는 조용히 무시된다.
+/**:
+  ros__parameters:
+    # 이 패키지는 GUI 확인 없이 실제 Pick & Place를 수행한다.
+    execution_mode: pick_place
+    auto_scan_motion: true
+    local_rescan_enabled: false
+    # 접근 전과 배치 해제 시 RG2를 50 mm까지만 연다.
+    gripper_preopen_width_mm: 50.0
+    max_picks: 5
+    target_names: [hammer, screwdriver, wrench, monkey_wrench, vise]
+
+    # Bird view에서 파지 가능한 공구가 하나도 안 잡힐 때, 이 시간만큼 계속
+    # 재확인한 뒤에야 작업을 종료한다. 금속 공구는 반사 때문에 depth가 몇
+    # 프레임씩 비므로 프레임 수가 아니라 시간으로 판정한다.
+    empty_scene_timeout_s: 3.0
+
+    # Doosan Base 좌표계, TCP GripperDA_v1에서 실측한
+    # [X, Y, Z, RX, RY, RZ] (mm/deg) 최종 배치 자세.
+    # X를 실측값에서 로봇 쪽으로 당긴 칸이 둘 있다. 실측값 그대로는 팔이
+    # 닿는 범위 밖이라 MoveJointx가 "NOT REACHABLE"로 거부됐다.
+    #   hammer 칸 619.40 -> 599.40 (-20)
+    #   wrench 칸 672.46 -> 602.46 (-20 후 -50 추가)
+    #   vise 칸 635.78 -> 615.78 (-20)
+    # 반대로 밀어낸 칸도 하나 있다. 실측값에서 공구가 로봇 쪽으로 너무
+    # 붙어 놓여서 바깥으로 뺐다.
+    #   monkey_wrench 칸 598.02 -> 608.02 (+10)
+    #
+    # vise와 wrench는 칸을 서로 맞바꿨다. 즉 아래 두 줄의 6값은 실측 당시
+    # 반대 공구의 것이다. 공구함에 실제로 놓는 위치도 그렇게 바뀌었으므로,
+    # 다시 실측하기 전까지 이 두 줄을 원래 이름 기준으로 되돌리지 말 것.
+    place_pose_hammer: [599.40, -225.69, 37.09, 19.00, -178.60, -73.21]
+    place_pose_screwdriver: [599.08, -157.94, 39.54, 15.74, -178.42, -76.38]
+    place_pose_wrench: [602.46, -84.92, 34.81, 25.42, -178.45, -68.86]
+    place_pose_monkey_wrench: [608.02, -6.42, 36.50, 22.08, -178.18, -70.29]
+    place_pose_vise: [615.78, 72.61, 32.89, 25.04, -178.32, -67.20]

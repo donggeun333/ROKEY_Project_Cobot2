@@ -1,3 +1,10 @@
+"""voxel occupancy 기반 pointcloud 비교 알고리즘.
+
+ROS 의존성을 두지 않고, 순수 파일 입력과 수치 연산만으로 결과를 계산한다.
+그래야 comparison 노드뿐 아니라 오프라인 분석 스크립트와 단위 테스트에서도
+같은 규칙을 재사용할 수 있다.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,6 +17,8 @@ import open3d as o3d
 
 @dataclass(frozen=True)
 class ComparisonConfig:
+    """비교 허용 오차와 ROI 범위를 담는 불변 설정."""
+
     voxel_size: float = 0.003
     neighbor_tolerance: int = 1
     min_similarity: float = 0.85
@@ -22,6 +31,8 @@ class ComparisonConfig:
 
 @dataclass(frozen=True)
 class ComparisonMetrics:
+    """비교 결과를 HMI/로그/파일 저장에 공통으로 쓰는 요약 값."""
+
     reference_voxel_count: int
     test_voxel_count: int
     common_voxel_count: int
