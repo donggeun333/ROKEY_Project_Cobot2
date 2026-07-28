@@ -1,7 +1,7 @@
 # VAAIS - Vision & Audio-guided Assembly & Inspection System
 
 AI(Computer Vision) 기반 협동 로봇 작업 어시스턴트 구현 프로젝트  
-두산 M0609 협동로봇, OnRobot RG2 그리퍼, RealSense 카메라, Flask HMI, ROS2 작업 제어 노드를 통합한 조립/검사 시스템입니다.  
+두산 M0609 협동로봇, OnRobot RG2 그리퍼, RealSense 카메라, Flask HMI, ROS2 작업 제어 노드를 통합한 조립 및 검사 시스템입니다.  
 현재 시스템은 다음 작업을 한 워크스페이스 안에서 함께 수행합니다.
 
 - 볼트 체결
@@ -22,7 +22,7 @@ AI(Computer Vision) 기반 협동 로봇 작업 어시스턴트 구현 프로젝
 flowchart LR
     User["사용자"]
 
-    subgraph UI["HMI / Voice"]
+    subgraph UI["HMI and Voice"]
         direction TB
         HMI["Flask HMI<br/>app_node"]
         Voice["Wake Word / STT / TTS"]
@@ -55,8 +55,8 @@ flowchart LR
 
     Cmd -->|"BOLT_ASSEMBLE"| Cmd
     Cmd -->|"OUTLET_ASSEMBLE"| Plug
-    Cmd -->|"INSPECT_FASTEN / CONNECTOR_INSPECT"| PC
-    Cmd -->|"TOOL_FETCH / TOOL_CLEANUP"| Sorter
+    Cmd -->|"INSPECT_FASTEN or CONNECTOR_INSPECT"| PC
+    Cmd -->|"TOOL_FETCH or TOOL_CLEANUP"| Sorter
 
     BringupNode --> Robot
     BringupNode --> Camera
@@ -108,13 +108,13 @@ flowchart TD
 ```mermaid
 flowchart TD
     A[작업 중 예외 발생] --> B{예외 종류}
-    B -- 액션 거절/미지원 intent --> C[즉시 실패 응답]
-    B -- 그리퍼 서비스 없음 --> D[/onrobot/sendCommand 확인]
-    B -- pointcloud timeout --> E[reset/capture/finalize/compare 단계 로그 확인]
+    B -- 액션 거절 또는 미지원 intent --> C[즉시 실패 응답]
+    B -- 그리퍼 서비스 없음 --> D[onrobot sendCommand 확인]
+    B -- pointcloud timeout --> E[pointcloud 단계 로그 확인]
     B -- 공구 전달/정리 실패 --> F[상태 토픽 메시지로 실패 사유 반환]
     B -- 플러그 삽입 실패 --> G[state 포함 메시지 반환]
     B -- 비상정지 --> H[move_stop 호출 및 수동 복구]
-    D --> I[HMI / 액션 결과에 실패 메시지 표시]
+    D --> I[HMI 또는 액션 결과에 실패 메시지 표시]
     E --> I
     F --> I
     G --> I
@@ -291,7 +291,7 @@ ros2 launch robot_control voice_command_stack.launch.py
 
 ---
 
-## 7. HMI / 음성 구조
+## 7. HMI 및 음성 구조
 
 현재 `hmi/app_v5.py`는 다음 역할을 한 프로세스에서 함께 수행합니다.
 
