@@ -2,7 +2,7 @@
 
 실행 스택 전체에서 그리퍼 소켓 소유권을 ``onrobot_rg_control`` 드라이버 하나로
 통일하기 위해, 직접 Modbus 대신 ``/onrobot/sendCommand`` 서비스만 사용한다.
-볼트 체결, pointcloud 검사 전 개방, 플러그 삽입, 공구 정리/전달이 모두 이
+볼트 체결, inspection_3d 검사 전 개방, 플러그 삽입, 공구 정리/전달이 모두 이
 방식을 공유한다.
 """
 

@@ -21,7 +21,7 @@
 
 - 음성 명령 해석
 - 볼트 체결
-- pointcloud 기반 3D 검사
+- inspection_3d 기반 3D 검사
   - 볼트 체결 검사
   - 멀티탭 체결 검사
 - **공구 전달 (`TOOL_FETCH`)** — 연결 완료, 아래 2장 참고
@@ -47,7 +47,7 @@
 2. `get_keyword_node.py`가 각각 `INSPECT_FASTEN` 또는 `CONNECTOR_INSPECT`로 해석한다.
 3. `voice_command_dispatcher.py`가 `/robot_command` 액션으로 전달한다.
 4. `robot_command_server.py`가 `pointcloud_inspector_task.py`를 호출한다.
-5. `pointcloud` 패키지의 `pipeline_node.py`, `comparison_node.py` 서비스로 스캔과 비교를 수행한다.
+5. `inspection_3d` 패키지의 `pipeline_node.py`, `comparison_node.py` 서비스로 스캔과 비교를 수행한다.
 
 ## 현재 코드 트리
 
@@ -81,7 +81,7 @@ cobot2_ws/
 │   │   └── RobotCommand.action
 │   └── srv/
 │       └── GetKeyword.srv
-├── pointcloud/
+├── inspection_3d/
 │   ├── README.md
 │   ├── package.xml
 │   ├── setup.py
@@ -90,7 +90,7 @@ cobot2_ws/
 │   ├── resource/
 │   │   ├── good_bolt.pcd
 │   │   └── good_multitap.pcd
-│   └── pointcloud/
+│   └── inspection_3d/
 │       ├── pipeline_node.py
 │       ├── comparison_node.py
 │       └── occupancy_compare.py
@@ -160,7 +160,8 @@ RG2를 잡는 방식이 기능마다 다르다.
    `gripper.open_gripper()` / `close_gripper()` 3곳(380, 386, 414행)만
    바꾸면 되므로 변경 폭이 작고, 드라이버 하나로 통일되는 방향이다.
 2. 공구 정리/전달을 직접 Modbus로 바꾼다.
-   `m0609_tool_sorter_unified/motion.py`의 `OnRobotGripper`를 고쳐야 한다.
+   `tool_sorter_core/tool_sorter_core/motion.py`의 `OnRobotGripper`를 고쳐야
+   한다.
 
 ## 현재 아키텍처
 
@@ -179,7 +180,7 @@ RG2를 잡는 방식이 기능마다 다르다.
 1. robot bringup
 2. realsense
 3. `ros2 run voice_processing get_keyword`
-4. 필요 시 `ros2 launch pointcloud pipeline_with_comparison.launch.py`
+4. 필요 시 `ros2 launch inspection_3d pipeline_with_comparison.launch.py`
 5. `ros2 launch robot_control voice_command_stack.launch.py`
 
 이 launch는 아래만 함께 실행한다.
@@ -194,7 +195,7 @@ RG2를 잡는 방식이 기능마다 다르다.
 - `voice_command_dispatcher.py` 안에 로봇 동작 로직을 직접 넣는 것
 - `get_keyword_node.py` 안에 작업 실행 코드를 넣는 것
 - `robot_command_server.py` 안에 perception, motion, force 로직을 길게 직접 작성하는 것
-- pointcloud 서비스 호출을 여기저기 흩뿌리는 것
+- inspection_3d 서비스 호출을 여기저기 흩뿌리는 것
 
 원칙:
 
@@ -272,7 +273,7 @@ RG2를 잡는 방식이 기능마다 다르다.
 
 가이드가 처음 예상한 것과 한 가지가 다르다. 공구 인식·파지·전달은
 `tool_handover_task.py`가 **직접 하지 않는다.** 그 일은 이미 별도 패키지
-`m0609_tool_sorter_handover`가 검증된 상태로 수행하고 있어서, task 파일은 그
+`tool_sorter_handover`가 검증된 상태로 수행하고 있어서, task 파일은 그
 노드를 구동하고 완료를 판정하는 얇은 클라이언트가 되었다.
 
 원칙은 그대로다 — `robot_command_server.py`는 라우팅만 하고, 실제 작업 흐름은
@@ -290,7 +291,7 @@ HMI(app_v5) --RobotCommand 액션--> robot_command_server
 
 ### 실행 순서
 
-`m0609_tool_sorter_handover`는 세션 개념을 쓴다. **순서를 지켜야 한다.**
+`tool_sorter_handover`는 세션 개념을 쓴다. **순서를 지켜야 한다.**
 
 1. `start`로 세션을 연다.
 2. 관측 자세 이동이 끝나 `WAITING_REQUEST`가 되는 것을 확인한다.
@@ -305,7 +306,7 @@ HMI(app_v5) --RobotCommand 액션--> robot_command_server
 ### 공구 이름
 
 HMI는 인식된 낱말을 그대로 실어 보내므로 `"망치"`일 수도 `"hammer"`일 수도
-있다. 정규화는 `m0609_tool_sorter_handover/tool_request.py`의
+있다. 정규화는 `tool_sorter_handover/tool_sorter_handover/tool_request.py`의
 `normalize_tool_request()`를 그대로 쓴다. 별칭 표를 robot_control에 다시
 만들지 않는다 — 두 벌이 되면 반드시 어긋난다.
 
@@ -314,13 +315,13 @@ HMI는 인식된 낱말을 그대로 실어 보내므로 `"망치"`일 수도 `"
 ### task_config에 추가된 값
 
 포즈는 없다. 관측 자세, grasp offset, 전달 판정 힘은 전부
-`m0609_tool_sorter_handover/config/handover.yaml`이 갖고 있다. robot_control에는
+`tool_sorter_handover/config/handover.yaml`이 갖고 있다. robot_control에는
 서비스/토픽 이름과 타임아웃만 있다 (`TOOL_HANDOVER_*`).
 
 ## 3. 공구 정리 (`TOOL_CLEANUP`) — 연결 완료
 
 작업장의 공구를 클래스별 지정 위치로 되돌린다. 구조는 전달과 같고, 상대는
-`m0609_tool_sorter_autonomous`다.
+`tool_sorter_cleanup`다.
 
 ```text
 robot_command_server
@@ -362,10 +363,10 @@ robot_command_server
 | intent | task 파일 | 실제 수행 |
 | --- | --- | --- |
 | `BOLT_ASSEMBLE` | `bolt_assemble_task.py` | robot_control 자체 |
-| `INSPECT_FASTEN` | `pointcloud_inspector_task.py` (`bolt`) | `pointcloud` 패키지 |
-| `CONNECTOR_INSPECT` | `pointcloud_inspector_task.py` (`multitap`) | `pointcloud` 패키지 |
-| `TOOL_FETCH` | `tool_handover_task.py` | `m0609_tool_sorter_handover` |
-| `TOOL_CLEANUP` | `tool_cleanup_task.py` | `m0609_tool_sorter_autonomous` |
+| `INSPECT_FASTEN` | `pointcloud_inspector_task.py` (`bolt`) | `inspection_3d` 패키지 |
+| `CONNECTOR_INSPECT` | `pointcloud_inspector_task.py` (`multitap`) | `inspection_3d` 패키지 |
+| `TOOL_FETCH` | `tool_handover_task.py` | `tool_sorter_handover` |
+| `TOOL_CLEANUP` | `tool_cleanup_task.py` | `tool_sorter_cleanup` |
 | `CONNECTOR_AUTO_CONNECT` | `connector_auto_connect_task.py` (예정) | - |
 
 ## 실행 방법 (공구 기능 포함)
@@ -373,10 +374,10 @@ robot_command_server
 1. robot bringup
 2. realsense
 3. RG2 그리퍼 드라이버 — 위 "그리퍼 소유권 충돌" 항목을 먼저 읽을 것
-4. 필요 시 `ros2 launch pointcloud pipeline_with_comparison.launch.py`
+4. 필요 시 `ros2 launch inspection_3d pipeline_with_comparison.launch.py`
 5. `ros2 launch robot_control tool_sorter_stack.launch.py`
 6. `ros2 launch robot_control voice_command_stack.launch.py`
-7. `ros2 run hmi app_node`
+7. `ros2 run operator_ui app_node`
 
 5번이 인식/TF 노드와 두 task manager를 띄운다. 각 패키지의 개별 launch
 (`autonomous_tool_sorter.launch.py`, `handover.launch.py`)를 대신 쓰면
@@ -394,18 +395,18 @@ ros2 action send_goal /dsr01/robot_command \
   '{intent: "TOOL_CLEANUP", tools: [], targets: []}' --feedback
 ```
 
-## pointcloud 기능과의 관계
+## inspection_3d 기능과의 관계
 
 주의:
 
 - 멀티탭 체결은 `pointcloud_inspector_task.py`가 아니라 별도 체결 task로 가야 한다.
-- 멀티탭 체결 검사만 pointcloud inspection을 사용한다.
-- 공구 전달은 pointcloud가 아니라 perception/motion 중심 흐름이 맞다.
+- 멀티탭 체결 검사만 inspection_3d inspection을 사용한다.
+- 공구 전달은 inspection_3d가 아니라 perception/motion 중심 흐름이 맞다.
 
 즉:
 
 - 체결 기능 = task 파일
-- 검사 기능 = pointcloud task
+- 검사 기능 = inspection_3d task
 
 ## 팀원에게 전달할 최소 규칙
 

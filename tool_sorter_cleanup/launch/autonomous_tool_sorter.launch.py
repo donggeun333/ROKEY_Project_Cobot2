@@ -1,35 +1,16 @@
-"""공구 정리(TOOL_CLEANUP) / 공구 전달(TOOL_FETCH)용 노드 스택.
-
-`robot_command_server`가 이 노드들의 Trigger 서비스를 부른다. 서버 자신은
-`voice_command_stack.launch.py`가 띄우므로 여기엔 없다.
-
-## 왜 각 패키지의 launch를 그냥 두 개 켜지 않는가
-
-`autonomous_tool_sorter.launch.py`와 `handover.launch.py`를 동시에 켜면
-`perception_node`와 TF broadcaster 2개가 **두 벌씩** 뜬다. 같은 노드 이름으로
-같은 카메라 토픽을 두 프로세스가 구독하게 되어 노드 이름이 충돌하고, GPU에서
-YOLO가 두 번 돈다.
-
-그래서 여기서는 공유 노드(TF 2개 + perception)를 한 번만 띄우고, 그 위에
-task manager 둘을 이름만 분리해서 붙인다. 실제로 움직이는 것은 항상 하나뿐이다
-- 두 task manager 모두 자체 재진입 방지가 있고, 액션 서버가 goal을 하나씩
-순차 실행하기 때문이다.
-
-GUI(dashboard)는 띄우지 않는다. 이 구성에서 조작 주체는 HMI와 음성이다.
-"""
-
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
-def generate_launch_description() -> LaunchDescription:
+def generate_launch_description():
     sorter_config = LaunchConfiguration("sorter_config")
     automation_config = LaunchConfiguration("automation_config")
-    handover_config = LaunchConfiguration("handover_config")
     transform_config = LaunchConfiguration("transform_config")
+    use_gui = LaunchConfiguration("use_gui")
     calibration_path = PathJoinSubstitution(
         [
             FindPackageShare("tool_sorter_core"),
@@ -54,22 +35,15 @@ def generate_launch_description() -> LaunchDescription:
                 "automation_config",
                 default_value=PathJoinSubstitution(
                     [
-                        FindPackageShare("tool_sorter_cleanup"),
+                        FindPackageShare(
+                            "tool_sorter_cleanup"
+                        ),
                         "config",
                         "autonomous_tool_sorter.yaml",
                     ]
                 ),
             ),
-            DeclareLaunchArgument(
-                "handover_config",
-                default_value=PathJoinSubstitution(
-                    [
-                        FindPackageShare("tool_sorter_handover"),
-                        "config",
-                        "handover.yaml",
-                    ]
-                ),
-            ),
+            DeclareLaunchArgument("use_gui", default_value="true"),
             DeclareLaunchArgument(
                 "transform_config",
                 default_value=PathJoinSubstitution(
@@ -80,7 +54,6 @@ def generate_launch_description() -> LaunchDescription:
                     ]
                 ),
             ),
-            # ---- 공유 노드: 한 번만 ----
             Node(
                 package="tool_sorter_core",
                 executable="tcp_pose_tf_broadcaster",
@@ -105,20 +78,22 @@ def generate_launch_description() -> LaunchDescription:
                 output="screen",
                 parameters=[sorter_config],
             ),
-            # ---- 기능별 task manager: 이름을 분리해서 동시에 띄운다 ----
             Node(
                 package="tool_sorter_cleanup",
                 executable="autonomous_task_manager",
-                name="tool_sorter_autonomous_task_manager",
+                name="tool_sorter_task_manager",
                 output="screen",
                 parameters=[sorter_config, automation_config],
             ),
+            # 자동 정리 전용 dashboard. 시작/정지와 5종 진행 체크리스트만
+            # 보면 되므로 use_gui:=false로 완전히 headless 실행도 가능하다.
             Node(
-                package="tool_sorter_handover",
-                executable="handover_task_manager",
-                name="tool_sorter_handover_task_manager",
+                package="tool_sorter_cleanup",
+                executable="autonomous_dashboard",
+                name="tool_sorter_dashboard",
                 output="screen",
-                parameters=[sorter_config, handover_config],
+                parameters=[sorter_config, automation_config],
+                condition=IfCondition(use_gui),
             ),
         ]
     )

@@ -1,7 +1,7 @@
 """공구 전달(TOOL_FETCH) task.
 
 요청받은 공구를 공구함에서 찾아 집어 작업자에게 건네준다. 인식, 좌표 변환,
-파지, 힘 기반 전달 판정은 전부 `m0609_tool_sorter_handover` 노드가 수행하고,
+파지, 힘 기반 전달 판정은 전부 `tool_sorter_handover` 노드가 수행하고,
 여기서는 그 노드를 구동하고 완료를 판정하는 일만 한다.
 
 ## 왜 start와 request가 따로인가
@@ -18,7 +18,7 @@ from __future__ import annotations
 from rclpy.node import Node
 from std_msgs.msg import String
 
-from m0609_tool_sorter_handover.tool_request import (
+from tool_sorter_handover.tool_request import (
     SPOKEN_TOOL_NAMES,
     normalize_tool_request,
     spoken_tool_name,

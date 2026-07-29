@@ -6,7 +6,7 @@
 ``pointcloud_comparison``의 compare 서비스를 순서대로 호출한다.
 
 이 모듈은 "검사 모션 오케스트레이션"만 담당한다. 실제 점군 처리와 비교 알고리즘은
-``pointcloud`` 패키지 쪽 구현체가 맡는다.
+``inspection_3d`` 패키지 쪽 구현체가 맡는다.
 """
 
 from __future__ import annotations
@@ -237,7 +237,7 @@ def run_pointcloud_inspection(node: Node, object_type: str) -> tuple[bool, str]:
             return False, finalize_response.message
 
         # pipeline_node(handle_finalize)가 이미 filtered PCD를 object_type에 맞는
-        # HMI captures 폴더(~/cobot_ws/src/hmi/pointclouds/<bolt|outlet>/captures)에
+        # HMI captures 폴더(~/cobot_ws/src/cobot2_ws/operator_ui/pointclouds/<bolt|outlet>/captures)에
         # 직접 저장하므로, 여기서 별도로 복사할 필요가 없다.
         filtered_path = parse_filtered_path(finalize_response.message)
 

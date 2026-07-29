@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>inspection_3d</name>
+  <version>0.0.0</version>
+  <description>Capture and merge RGB-D point clouds in base_link using TF.</description>
+  <maintainer email="donggeun3237@gmail.com">dg</maintainer>
+  <license>TODO: License declaration</license>
+
+  <depend>geometry_msgs</depend>
+  <depend>od_msg</depend>
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>tf2_ros</depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

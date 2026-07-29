@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>PAGE 2: 3D 포인트클라우드 비교 검사 - HMI</title>
+    <!-- Three.js 라이브러리 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', sans-serif; background-color: #1a1a1a; color: #fff; padding: 15px; }
+
+        header { display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 12px 20px; border-radius: 8px; margin-bottom: 15px; border-left: 5px solid #9b59b6; }
+        .nav-btns { display: flex; gap: 8px; }
+        .btn-nav { padding: 8px 14px; background: #333; color: #fff; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 13px; }
+        .btn-nav.active { background: #9b59b6; }
+        .btn-estop-header { background: #e74c3c; color: #fff; font-weight: bold; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; }
+
+        /* 검사 종류/서브항목 선택 및 검사 시작 툴바 */
+        .toolbar { display: flex; align-items: center; gap: 10px; background: #2a2a2a; border-radius: 8px; padding: 12px 15px; margin-bottom: 15px; flex-wrap: wrap; }
+        .toolbar label { font-size: 13px; color: #aaa; }
+        .toolbar select { background: #333; color: #fff; border: 1px solid #444; border-radius: 6px; padding: 6px 10px; font-size: 13px; }
+        .btn-inspect { background: #9b59b6; color: #fff; font-weight: bold; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+        .btn-inspect:disabled { background: #555; cursor: not-allowed; }
+        .toggle-wrap { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+
+        /* 결과 배지 */
+        .result-badge { padding: 6px 14px; border-radius: 20px; font-weight: bold; font-size: 13px; }
+        .result-badge.ok { background: rgba(46, 204, 113, 0.15); color: #2ecc71; border: 1px solid #2ecc71; }
+        .result-badge.ng { background: rgba(231, 76, 60, 0.15); color: #e74c3c; border: 1px solid #e74c3c; }
+        .result-badge.none { background: rgba(255,255,255,0.08); color: #aaa; border: 1px solid #555; }
+
+        /* 2분할(또는 겹쳐보기) 3D 뷰 영역 */
+        .split-container { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .split-container.overlay-mode { grid-template-columns: 1fr; }
+        .view-panel { background: #2a2a2a; border-radius: 8px; padding: 10px; border: 1px solid #3d3d3d; }
+        .view-panel h4 { font-size: 13px; color: #9b59b6; margin-bottom: 8px; padding-left: 4px; }
+        .canvas-box { width: 100%; height: 420px; background: #000; border-radius: 6px; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1 style="font-size:18px; color:#9b59b6;">🧊 3D 포인트클라우드 비교 검사</h1>
+        <div class="nav-btns">
+            <a href="/admin/dashboard" class="btn-nav">1. 공정 모니터링</a>
+            <a href="/admin/viewer3d" class="btn-nav active">2. 3D 품질분석</a>
+            <a href="/admin/control" class="btn-nav">3. 수동 제어</a>
+            <a href="/admin/history" class="btn-nav">4. 이력/DB</a>
+        </div>
+        <button class="btn-estop-header" onclick="sendCommand('ESTOP')">🚨 E-STOP</button>
+    </header>
+
+    <!-- 검사 종류 선택 + 검사 시작 + 겹쳐보기 토글 -->
+    <div class="toolbar">
+        <label for="categorySelect">검사 종류</label>
+        <select id="categorySelect" onchange="onCategoryChange()">
+            <option value="bolt">볼트 검사</option>
+            <option value="outlet" selected>콘센트 검사</option>
+        </select>
+
+        <label for="subItemSelect" id="subItemLabel">서브 항목</label>
+        <select id="subItemSelect" onchange="onSubItemChange()">
+            <option value="1">1번 (큰 콘센트)</option>
+            <option value="2">2번 (작은 콘센트)</option>
+        </select>
+
+        <label for="referenceSelect">저장된 기준(양품) 이미지</label>
+        <select id="referenceSelect" onchange="loadReferenceOnly()">
+            <option value="">불러오는 중...</option>
+        </select>
+
+        <label for="captureSelect">저장된 촬영 이미지</label>
+        <select id="captureSelect" onchange="onCaptureManualChange()">
+            <option value="">불러오는 중...</option>
+        </select>
+
+        <button class="btn-inspect" id="inspectBtn" onclick="runInspection()">🔍 검사 시작</button>
+
+        <span id="resultBadge" class="result-badge none">검사 결과 없음</span>
+
+        <div class="toggle-wrap">
+            <label style="font-size:13px; color:#aaa;"><input type="checkbox" id="overlayToggle" onchange="onOverlayToggle()"> 겹쳐보기</label>
+        </div>
+    </div>
+
+    <!-- 2분할 뷰: 기준(양품) vs 촬영본. 겹쳐보기 체크 시 하나로 합쳐짐 -->
+    <div class="split-container" id="splitContainer">
+        <div class="view-panel" id="refPanel">
+            <h4>📀 저장된 기준(양품) 3D 이미지</h4>
+            <div class="canvas-box" id="canvasRef"></div>
+        </div>
+        <div class="view-panel" id="capPanel">
+            <h4>📷 새로 촬영한 3D 이미지</h4>
+            <div class="canvas-box" id="canvasCap"></div>
+        </div>
+        <div class="view-panel" id="overlayPanel" style="display:none;">
+            <h4>🔀 기준(청록색) + 촬영본(자홍색) 겹쳐보기</h4>
+            <div class="canvas-box" id="canvasOverlay"></div>
+        </div>
+    </div>
+
+    <script>
+        let refScene, refCamera, refRenderer, refControls;
+        let capScene, capCamera, capRenderer, capControls;
+        let ovScene, ovCamera, ovRenderer, ovControls;
+        let followLatestCapture = true;    // true면 폴링이 새 캡처를 자동으로 따라감. 사용자가 직접 고르면 false로 꺼짐
+        let knownNewestCaptureFile = null; // 마지막으로 확인한 '최신' 캡처 파일명 (변경 감지용, follow 여부와 무관)
+
+        function makeScene(containerId) {
+            const container = document.getElementById(containerId);
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.01, 1000);
+            camera.position.set(0.5, 0.5, 0.8);
+            const renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            container.innerHTML = "";
+            container.appendChild(renderer.domElement);
+            const controls = new THREE.OrbitControls(camera, renderer.domElement);
+            scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+            scene.add(new THREE.GridHelper(10, 20, 0x9b59b6, 0x444444));
+            return { scene, camera, renderer, controls };
+        }
+
+        function pointsToGeometry(dataObj, defaultColor, size, useRGB = true) {
+            const points = dataObj.points || [];
+            const colors = dataObj.colors || [];
+
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(points.length * 3);
+            for (let i = 0; i < points.length; i++) {
+                positions[i*3]     = points[i][0];
+                positions[i*3 + 1] = points[i][1];
+                positions[i*3 + 2] = points[i][2];
+            }
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+            let material;
+            if (useRGB && colors.length > 0 && colors.length === points.length) {
+                const colorArray = new Float32Array(colors.length * 3);
+                for (let i = 0; i < colors.length; i++) {
+                    colorArray[i*3]     = colors[i][0];
+                    colorArray[i*3 + 1] = colors[i][1];
+                    colorArray[i*3 + 2] = colors[i][2];
+                }
+                geometry.setAttribute('color', new THREE.BufferAttribute(colorArray, 3));
+                material = new THREE.PointsMaterial({
+                    size: size || 0.01,
+                    vertexColors: true
+                });
+            } else {
+                material = new THREE.PointsMaterial({
+                    color: defaultColor,
+                    size: size || 0.01
+                });
+            }
+
+            return new THREE.Points(geometry, material);
+        }
+
+        // Three.js GPU 메모리 누수 방지용 클리어 함수 보완
+        function clearScenePoints(scene) {
+            if (!scene) return;
+            const toRemove = scene.children.filter(c => c.type === "Points");
+            toRemove.forEach(c => {
+                if (c.geometry) c.geometry.dispose();
+                if (c.material) {
+                    if (Array.isArray(c.material)) {
+                        c.material.forEach(m => m.dispose());
+                    } else {
+                        c.material.dispose();
+                    }
+                }
+                scene.remove(c);
+            });
+        }
+
+        function animateAll() {
+            requestAnimationFrame(animateAll);
+            if (refControls) { refControls.update(); refRenderer.render(refScene, refCamera); }
+            if (capControls) { capControls.update(); capRenderer.render(capScene, capCamera); }
+            if (ovControls) { ovControls.update(); ovRenderer.render(ovScene, ovCamera); }
+        }
+
+        function currentCategory() {
+            return document.getElementById('categorySelect').value;
+        }
+        function currentSubItem() {
+            const cat = currentCategory();
+            if (cat !== 'outlet') return null;
+            return parseInt(document.getElementById('subItemSelect').value);
+        }
+
+        function onCategoryChange() {
+            const isOutlet = currentCategory() === 'outlet';
+            document.getElementById('subItemLabel').style.display = isOutlet ? 'inline' : 'none';
+            document.getElementById('subItemSelect').style.display = isOutlet ? 'inline-block' : 'none';
+            followLatestCapture = true;  // 카테고리가 바뀌면(=완전히 새 컨텍스트) 자동 추적을 다시 켠다
+            loadAll();
+        }
+
+        async function fetchPoints(which, fileName) {
+            try {
+                let url = `/api/inspection/inspection_3d?category=${currentCategory()}&which=${which}`;
+                if (fileName) url += `&file=${encodeURIComponent(fileName)}`;
+                const res = await fetch(url);
+                const data = await res.json();
+                return {
+                    points: data.points || [],
+                    colors: data.colors || []
+                };
+            } catch (e) {
+                console.error("포인트클라우드 로딩 오류:", e);
+                return { points: [], colors: [] };
+            }
+        }
+
+        const DROPDOWN_CONFIG = {
+            reference: { selectId: 'referenceSelect', listEndpoint: 'references', listKey: 'references', emptyText: '저장된 기준 이미지 없음' },
+            captured:  { selectId: 'captureSelect',   listEndpoint: 'captures',   listKey: 'captures',   emptyText: '저장된 촬영 이미지 없음' },
+        };
+
+        async function refreshDropdown(which) {
+            const cfg = DROPDOWN_CONFIG[which];
+            const select = document.getElementById(cfg.selectId);
+            const prevValue = select.value;
+            try {
+                const res = await fetch(`/api/inspection/${cfg.listEndpoint}?category=${currentCategory()}`);
+                const data = await res.json();
+                const items = data[cfg.listKey] || [];
+                if (items.length === 0) {
+                    select.innerHTML = `<option value="">${cfg.emptyText}</option>`;
+                    return null;
+                }
+                select.innerHTML = items.map(c => `<option value="${c.file}">${c.timestamp}</option>`).join('');
+                if (items.some(c => c.file === prevValue)) {
+                    select.value = prevValue;
+                } else {
+                    select.value = items[0].file;
+                }
+                return select.value;
+            } catch (e) {
+                console.error(`${which} 이미지 목록 로딩 오류:`, e);
+                return null;
+            }
+        }
+
+        // 드롭다운 <option> 목록만 가볍게 갱신 (초기 로딩용 refreshDropdown과 달리 폴링용 - 빈 목록 안내 텍스트는 건드리지 않음)
+        function updateSelectOptionsLight(selectId, items) {
+            const select = document.getElementById(selectId);
+            if (items.length === 0) return null;
+            const prevValue = select.value;
+            const optionsHtml = items.map(c => `<option value="${c.file}">${c.timestamp}</option>`).join('');
+            if (select.innerHTML !== optionsHtml) {
+                select.innerHTML = optionsHtml;
+                select.value = items.some(c => c.file === prevValue) ? prevValue : items[0].file;
+            }
+            return items[0].file;
+        }
+
+        // 지정된 폴더(pointclouds/{category}/captures 등)에 새로 저장된 파일을 실시간으로 반영.
+        // 음성 명령으로 로봇이 스캔을 마치고 백그라운드에서 PCD를 저장해도, 페이지를 새로고침하지 않고
+        // 목록/3D 뷰가 자동으로 최신 상태를 따라간다. 단, 사용자가 드롭다운에서 직접 캡처를 골랐다면
+        // (followLatestCapture=false) 새 파일이 와도 화면을 강제로 바꾸지 않고 목록에만 반영한다.
+        async function pollCapturesRealtime() {
+            const cat = currentCategory();
+            try {
+                const [refRes, capRes] = await Promise.all([
+                    fetch(`/api/inspection/references?category=${cat}`),
+                    fetch(`/api/inspection/captures?category=${cat}`),
+                ]);
+                const refData = await refRes.json();
+                const capData = await capRes.json();
+
+                updateSelectOptionsLight('referenceSelect', refData.references || []);
+
+                const captureItems = capData.captures || [];
+                if (captureItems.length === 0) return;
+
+                const newestFile = updateSelectOptionsLight('captureSelect', captureItems);
+
+                if (newestFile && newestFile !== knownNewestCaptureFile) {
+                    knownNewestCaptureFile = newestFile;
+                    if (followLatestCapture) {
+                        document.getElementById('captureSelect').value = newestFile;
+                        await loadCapturedOnly();
+                    }
+                }
+            } catch (e) {
+                console.error("실시간 파일 폴링 오류:", e);
+            }
+        }
+
+        // 사용자가 "저장된 촬영 이미지" 드롭다운을 직접 클릭해서 고를 때만 호출됨.
+        // 이 순간부터 실시간 폴링은 이 선택을 절대 건드리지 않는다(명시적 의도이므로).
+        function onCaptureManualChange() {
+            followLatestCapture = false;
+            loadCapturedOnly();
+        }
+
+        async function loadCapturedOnly() {
+            const fileName = document.getElementById('captureSelect').value;
+            const refFileName = document.getElementById('referenceSelect').value;
+            const capData = await fetchPoints('captured', fileName);
+            clearScenePoints(capScene);
+            if (capData.points.length > 0) capScene.add(pointsToGeometry(capData, 0xD4537E, 0.01, true));
+
+            const refData = await fetchPoints('reference', refFileName);
+            clearScenePoints(ovScene);
+            if (refData.points.length > 0) ovScene.add(pointsToGeometry(refData, 0x1D9E75, 0.01, false));
+            if (capData.points.length > 0) ovScene.add(pointsToGeometry(capData, 0xD4537E, 0.01, false));
+        }
+
+        async function loadReferenceOnly() {
+            const fileName = document.getElementById('referenceSelect').value;
+            const capFileName = document.getElementById('captureSelect').value;
+            const refData = await fetchPoints('reference', fileName);
+            clearScenePoints(refScene);
+            if (refData.points.length > 0) refScene.add(pointsToGeometry(refData, 0x1D9E75, 0.01, true));
+
+            const capData = await fetchPoints('captured', capFileName);
+            clearScenePoints(ovScene);
+            if (refData.points.length > 0) ovScene.add(pointsToGeometry(refData, 0x1D9E75, 0.01, false));
+            if (capData.points.length > 0) ovScene.add(pointsToGeometry(capData, 0xD4537E, 0.01, false));
+        }
+
+        function onSubItemChange() {
+            loadLatestResult();
+        }
+
+        async function loadAll() {
+            const [selectedRef, selectedCap] = await Promise.all([
+                refreshDropdown('reference'),
+                refreshDropdown('captured'),
+            ]);
+            knownNewestCaptureFile = selectedCap;  // 실시간 폴링의 '최신 파일 감지' 기준점 초기화
+            const [refData, capData] = await Promise.all([
+                fetchPoints('reference', selectedRef),
+                fetchPoints('captured', selectedCap),
+            ]);
+
+            clearScenePoints(refScene);
+            clearScenePoints(capScene);
+            clearScenePoints(ovScene);
+
+            if (refData.points.length > 0) refScene.add(pointsToGeometry(refData, 0x1D9E75, 0.01, true));
+            if (capData.points.length > 0) capScene.add(pointsToGeometry(capData, 0xD4537E, 0.01, true));
+            
+            if (refData.points.length > 0) ovScene.add(pointsToGeometry(refData, 0x1D9E75, 0.01, false));
+            if (capData.points.length > 0) ovScene.add(pointsToGeometry(capData, 0xD4537E, 0.01, false));
+
+            await loadLatestResult();
+        }
+
+        async function loadLatestResult() {
+            const cat = currentCategory();
+            const sub = currentSubItem();
+            let url = `/api/inspection/latest?category=${cat}`;
+            if (sub) url += `&item_index=${sub}`;
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+                const badge = document.getElementById('resultBadge');
+                if (data.result === 'OK') {
+                    badge.className = 'result-badge ok';
+                    badge.innerText = `양품 (일치율 ${data.match_pct}%)`;
+                } else if (data.result === 'NG') {
+                    badge.className = 'result-badge ng';
+                    badge.innerText = `불량 (일치율 ${data.match_pct}%)`;
+                } else {
+                    badge.className = 'result-badge none';
+                    badge.innerText = '검사 결과 없음';
+                }
+            } catch (e) {
+                console.error("검사 결과 로딩 오류:", e);
+            }
+        }
+
+        async function runInspection() {
+            const btn = document.getElementById('inspectBtn');
+            btn.disabled = true;
+            btn.innerText = '검사 중...';
+            try {
+                await fetch('/api/inspection/run', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        category: currentCategory(),
+                        item_index: currentSubItem(),
+                        // 화면(드롭다운)에 현재 선택/표시 중인 정확한 파일을 그대로 서버에 전달.
+                        // 이걸 안 보내면 서버는 항상 디스크상 '최신' 파일로만 비교해버려서,
+                        // 사용자가 과거 캡처를 골라 재검사해도 결과가 안 바뀌는 문제가 있었다.
+                        capture_file: document.getElementById('captureSelect').value || null,
+                        reference_file: document.getElementById('referenceSelect').value || null,
+                    })
+                });
+                setTimeout(loadAll, 4000);
+            } catch (e) {
+                console.error("검사 시작 오류:", e);
+            } finally {
+                setTimeout(() => { btn.disabled = false; btn.innerText = '🔍 검사 시작'; }, 4000);
+            }
+        }
+
+        function resizeScene(containerId, camera, renderer) {
+            const container = document.getElementById(containerId);
+            const w = container.clientWidth, h = container.clientHeight;
+            if (w === 0 || h === 0) return;
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h);
+        }
+
+        function onOverlayToggle() {
+            const overlay = document.getElementById('overlayToggle').checked;
+            document.getElementById('splitContainer').classList.toggle('overlay-mode', overlay);
+            document.getElementById('refPanel').style.display = overlay ? 'none' : '';
+            document.getElementById('capPanel').style.display = overlay ? 'none' : '';
+            document.getElementById('overlayPanel').style.display = overlay ? '' : 'none';
+
+            requestAnimationFrame(() => {
+                if (overlay) {
+                    resizeScene('canvasOverlay', ovCamera, ovRenderer);
+                } else {
+                    resizeScene('canvasRef', refCamera, refRenderer);
+                    resizeScene('canvasCap', capCamera, capRenderer);
+                }
+            });
+        }
+
+        function resetCamera() {
+            [ [refCamera, refControls], [capCamera, capControls], [ovCamera, ovControls] ].forEach(([cam, ctl]) => {
+                if (!cam) return;
+                cam.position.set(0.5, 0.5, 0.8);
+                ctl.target.set(0,0,0);
+                ctl.update();
+            });
+        }
+
+        async function sendCommand(cmd) {
+            fetch('/api/robot/command', { method:'POST', body: JSON.stringify({command: cmd}) });
+        }
+
+        function init() {
+            ({ scene: refScene, camera: refCamera, renderer: refRenderer, controls: refControls } = makeScene('canvasRef'));
+            ({ scene: capScene, camera: capCamera, renderer: capRenderer, controls: capControls } = makeScene('canvasCap'));
+            ({ scene: ovScene, camera: ovCamera, renderer: ovRenderer, controls: ovControls } = makeScene('canvasOverlay'));
+            
+            onCategoryChange();
+            animateAll();
+        }
+
+        init();
+        setInterval(loadLatestResult, 3000);
+        setInterval(pollCapturesRealtime, 2000);
+
+        window.addEventListener('resize', () => {
+            const overlay = document.getElementById('overlayToggle').checked;
+            if (overlay) {
+                resizeScene('canvasOverlay', ovCamera, ovRenderer);
+            } else {
+                resizeScene('canvasRef', refCamera, refRenderer);
+                resizeScene('canvasCap', capCamera, capRenderer);
+            }
+        });
+    </script>
+</body>
+</html>

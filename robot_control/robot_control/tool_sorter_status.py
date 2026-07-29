@@ -1,6 +1,6 @@
 """공구 정리/전달 노드를 구동하고 완료를 판정하는 공통 클라이언트.
 
-`m0609_tool_sorter_autonomous`와 `m0609_tool_sorter_handover`는 둘 다 같은
+`tool_sorter_cleanup`와 `tool_sorter_handover`는 둘 다 같은
 방식으로 외부에 노출되어 있다.
 
 - 시작/중지는 `std_srvs/Trigger` 서비스

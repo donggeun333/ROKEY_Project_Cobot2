@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>operator_ui</name>
+  <version>0.1.0</version>
+  <description>CoboTender Assembly/Bartender Robot: Flask HMI + ROS2 bridge, with the voice_processing package fully merged in as an integrated voice pipeline (wake word, STT, LLM keyword extraction, TTS) running inside the same node.</description>
+  <maintainer email="rokey@todo.todo">rokey</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>ament_index_python</depend>
+  <depend>cv_bridge</depend>
+  <depend>voice_interfaces</depend>
+
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-flask</exec_depend>
+  <exec_depend>python3-dotenv</exec_depend>
+
+  <!-- [통합] voice_processing 의 실행 의존성 (pip: pyaudio, openwakeword, scipy,
+       sounddevice, numpy, openai, langchain, langchain-openai). rosdep/apt 패키지가
+       없는 항목은 requirements 로 pip install 필요 (README 참고). -->
+
+  <exec_depend>python3-pyaudio</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-scipy</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

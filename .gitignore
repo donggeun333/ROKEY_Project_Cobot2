@@ -27,30 +27,28 @@ voice_processing/
 # -----------------------------------------------------------------------------
 # 제출 제외: 문서 전용 부가 자료
 # -----------------------------------------------------------------------------
-m0609_tool_sorter_unified/docs/
+tool_sorter_core/docs/
 
 # -----------------------------------------------------------------------------
 # 제출 제외: HMI 런타임 생성물 및 민감 파일
 # -----------------------------------------------------------------------------
-hmi/database/
-hmi/resource/.env
-hmi/pointclouds/bolt/captures/
-hmi/pointclouds/outlet/captures/
+operator_ui/database/
+operator_ui/resource/.env
+operator_ui/pointclouds/bolt/captures/
+operator_ui/pointclouds/outlet/captures/
 
 # -----------------------------------------------------------------------------
 # 제출 제외: pointcloud 런타임/오프라인 생성 데이터
 # -----------------------------------------------------------------------------
-pointcloud/data/
+inspection_3d/data/
 
 # -----------------------------------------------------------------------------
 # 제출 제외: 패키지 내부 캐시 디렉터리
 # -----------------------------------------------------------------------------
-hmi/**/__pycache__/
+operator_ui/**/__pycache__/
 robot_control/**/__pycache__/
-pointcloud/**/__pycache__/
-m0609_plug_insert/**/__pycache__/
-m0609_tool_sorter_unified/**/__pycache__/
-m0609_tool_sorter_autonomous/**/__pycache__/
-m0609_tool_sorter_handover/**/__pycache__/
-onrobot-ros2/**/__pycache__/
-rg2/**/__pycache__/
+inspection_3d/**/__pycache__/
+outlet_assembly/**/__pycache__/
+tool_sorter_core/**/__pycache__/
+tool_sorter_cleanup/**/__pycache__/
+tool_sorter_handover/**/__pycache__/

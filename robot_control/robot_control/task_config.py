@@ -4,7 +4,7 @@
 계약이다. 예를 들어:
 
 - RG2 서비스 이름
-- pointcloud 서비스 이름과 타임아웃
+- inspection_3d 서비스 이름과 타임아웃
 - HMI 캡처 저장 위치
 - 볼트/멀티탭 스캔 포즈
 
@@ -34,12 +34,11 @@ def resolve_workspace_root() -> Path:
     return current.parents[4]
 
 
-def resolve_hmi_pointcloud_dir(workspace_root: Path) -> Path:
-    """hmi 패키지 이동 전/후 경로를 모두 지원하는 pointcloud 저장 루트."""
+def resolve_operator_ui_pointcloud_dir(workspace_root: Path) -> Path:
+    """operator_ui 패키지의 inspection_3d 저장 루트를 찾는다."""
 
     candidates = [
-        workspace_root / "src" / "cobot2_ws" / "hmi" / "pointclouds",
-        workspace_root / "src" / "hmi" / "pointclouds",
+        workspace_root / "src" / "cobot2_ws" / "operator_ui" / "pointclouds",
     ]
     for candidate in candidates:
         if candidate.exists():
@@ -146,10 +145,10 @@ FASTEN_SEQUENCE = [
 OBJECT_TYPE_MULTITAP = "multitap"
 OBJECT_TYPE_BOLT = "bolt"
 WORKSPACE_ROOT = resolve_workspace_root()
-HMI_POINTCLOUD_DIR = resolve_hmi_pointcloud_dir(WORKSPACE_ROOT)
+HMI_POINTCLOUD_DIR = resolve_operator_ui_pointcloud_dir(WORKSPACE_ROOT)
 POINTCLOUD_REFERENCE_PATH_BY_OBJECT = {
-    OBJECT_TYPE_BOLT: resolve_package_resource("pointcloud", "resource/good_bolt.pcd"),
-    OBJECT_TYPE_MULTITAP: resolve_package_resource("pointcloud", "resource/good_multitap.pcd"),
+    OBJECT_TYPE_BOLT: resolve_package_resource("inspection_3d", "resource/good_bolt.pcd"),
+    OBJECT_TYPE_MULTITAP: resolve_package_resource("inspection_3d", "resource/good_multitap.pcd"),
 }
 POINTCLOUD_CAPTURE_DIR_BY_OBJECT = {
     OBJECT_TYPE_BOLT: str((HMI_POINTCLOUD_DIR / "bolt" / "captures").resolve()),
@@ -221,7 +220,7 @@ POINTCLOUD_SETTLE_SEC = 0.5
 # ---------------------------------------------------------------------------
 # 공구 정리(TOOL_CLEANUP) / 공구 전달(TOOL_FETCH)
 #
-# 실제 인식과 로봇 동작은 m0609_tool_sorter_autonomous / _handover 노드가
+# 실제 인식과 로봇 동작은 tool_sorter_cleanup / _handover 노드가
 # 수행한다. robot_control은 아래 인터페이스로 그 노드들을 구동하고 상태
 # 토픽으로 완료를 판정하기만 한다.
 # ---------------------------------------------------------------------------

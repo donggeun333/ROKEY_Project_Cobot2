@@ -11,7 +11,7 @@ import rclpy
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.node import Node
 
-from m0609_plug_insert.plug_insert_task import run_plug_insert
+from outlet_assembly.plug_insert_task import run_plug_insert
 from robot_control.bolt_assemble_task import run_bolt_assemble
 from robot_control.pointcloud_inspector_task import (
     OBJECT_TYPE_BOLT,

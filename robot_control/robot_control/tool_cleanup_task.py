@@ -1,7 +1,7 @@
 """공구 정리(TOOL_CLEANUP) task.
 
 작업장에 놓인 공구를 클래스별 지정 위치로 되돌린다. 인식, 좌표 변환, 로봇
-동작은 전부 `m0609_tool_sorter_autonomous` 노드가 수행하고, 여기서는 그 노드를
+동작은 전부 `tool_sorter_cleanup` 노드가 수행하고, 여기서는 그 노드를
 시작시킨 뒤 완료를 판정하는 일만 한다.
 
 실제 시퀀스(Bird view 이동 -> depth 순 Pick & Place -> 매 Pick 후 재촬영)는

@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>tool_sorter_cleanup</name>
+  <version>0.1.0</version>
+  <description>Headless five-tool sorting job manager for the M0609 cell.</description>
+  <maintainer email="jeowryu@gmail.com">jwanryu</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>tool_sorter_core</depend>
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>python3-pyqt5</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

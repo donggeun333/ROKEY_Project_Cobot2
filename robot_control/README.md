@@ -6,7 +6,7 @@
 
 - 볼트 체결
 - 플러그 삽입(콘센트/멀티탭 체결)
-- pointcloud 기반 3D 검사
+- inspection_3d 기반 3D 검사
   - 볼트 체결 검사
   - 멀티탭 체결 검사
 - 공구 가져오기
@@ -16,14 +16,14 @@
 
 실행 흐름은 아래와 같다.
 
-1. `hmi/app_v5.py`
+1. `operator_ui/app_v5.py`
    - wake word/STT/TTS/HMI 웹 UI를 함께 실행
    - 음성 문장을 intent로 분류하고 `/dsr01/robot_command` 액션 목표를 보냄
 2. `robot_control/robot_command_server.py`
    - intent별 task 실행
 3. task 파일
    - `bolt_assemble_task.py`
-   - `m0609_plug_insert.plug_insert_task`
+   - `outlet_assembly.plug_insert_task`
    - `pointcloud_inspector_task.py`
    - `tool_handover_task.py`
    - `tool_cleanup_task.py`
@@ -44,7 +44,7 @@
   - `bolt_assemble_task.py` 실행
 - `콘센트 체결해줘` / `멀티탭 체결해줘`
   - `OUTLET_ASSEMBLE`
-  - `m0609_plug_insert.plug_insert_task` 실행
+  - `outlet_assembly.plug_insert_task` 실행
 - `볼트 체결 검사해줘`
   - `INSPECT_FASTEN`
   - `pointcloud_inspector_task.py`를 `object_type=bolt`로 실행
@@ -53,10 +53,10 @@
   - `pointcloud_inspector_task.py`를 `object_type=multitap`으로 실행
 - `망치 가져와줘` (망치/드라이버/렌치/몽키렌치/바이스)
   - `TOOL_FETCH`
-  - `tool_handover_task.py`가 `m0609_tool_sorter_handover`를 구동
+  - `tool_handover_task.py`가 `tool_sorter_handover`를 구동
 - `공구 정리해줘`
   - `TOOL_CLEANUP`
-  - `tool_cleanup_task.py`가 `m0609_tool_sorter_autonomous`를 구동
+  - `tool_cleanup_task.py`가 `tool_sorter_cleanup`를 구동
 
 ## 핵심 파일 역할
 
@@ -70,17 +70,17 @@
 - `robot_control/bolt_assemble_task.py`
   - 볼트 검출, 파지, 체결 task
   - YOLO + depth + TF + movej/movel 사용
-- `m0609_plug_insert/plug_insert_task.py`
+- `outlet_assembly/outlet_assembly/plug_insert_task.py`
   - 콘센트/멀티탭 체결 task
   - 멀티탭 구멍 인식, 플러그 파지, 삽입 시퀀스 수행
 - `robot_control/pointcloud_inspector_task.py`
-  - pointcloud 스캔/비교 task
-  - pointcloud 패키지의 reset/capture/finalize/compare 서비스 호출
+  - inspection_3d 스캔/비교 task
+  - inspection_3d 패키지의 reset/capture/finalize/compare 서비스 호출
 - `robot_control/tool_handover_task.py`
-  - 공구 전달 task. `m0609_tool_sorter_handover`의 start/request/stop을 순서대로
+  - 공구 전달 task. `tool_sorter_handover`의 start/request/stop을 순서대로
     구동하고 상태 토픽으로 완료를 판정한다
 - `robot_control/tool_cleanup_task.py`
-  - 공구 정리 task. `m0609_tool_sorter_autonomous`의 organize를 구동한다
+  - 공구 정리 task. `tool_sorter_cleanup`의 organize를 구동한다
 - `robot_control/tool_sorter_status.py`
   - 위 두 task가 공유하는 Trigger 호출 / 상태 토픽 대기 유틸
 - `robot_control/task_config.py`
@@ -100,8 +100,8 @@
 - 그리퍼 및 TCP 설정
 - 볼트 체결용 카메라 토픽
 - 볼트 체결용 포즈
-- pointcloud 검사용 스캔 포즈
-- pointcloud 서비스 이름
+- inspection_3d 검사용 스캔 포즈
+- inspection_3d 서비스 이름
 - 타임아웃, 속도, settle time
 
 즉 실기 조정이 필요한 값은 이 파일에서 먼저 확인하면 된다.
@@ -111,10 +111,10 @@
 현재 권장 실행:
 
 1. `ros2 launch m0609_rg2_bringup bringup_camera.launch.py mode:=real host:=<ROBOT_IP>`
-2. 필요 시 `ros2 launch pointcloud pipeline_with_comparison.launch.py`
+2. 필요 시 `ros2 launch inspection_3d pipeline_with_comparison.launch.py`
 3. 공구 기능 사용 시 `ros2 launch robot_control tool_sorter_stack.launch.py`
 4. `ros2 run robot_control robot_command_server`
-5. `ros2 run hmi app_node`
+5. `ros2 run operator_ui app_node`
 
 레거시 음성 서비스(`/get_keyword`)까지 써야 하면 아래 launch를 대신 사용할 수 있다.
 
@@ -126,15 +126,15 @@ ros2 launch robot_control voice_command_stack.launch.py
 
 - `voice_interfaces`
   - `RobotCommand.action`, `GetKeyword.srv`
-- `hmi`
+- `operator_ui`
   - Flask HMI + 통합 음성 인식 + robot_command 액션 클라이언트
-- `pointcloud`
+- `inspection_3d`
   - 스캔/후처리/비교 엔진
 - `od_msg`
   - `SrvPointCloudCompare.srv`
-- `m0609_plug_insert`
+- `outlet_assembly`
   - `OUTLET_ASSEMBLE` 구현체
-- `m0609_tool_sorter_autonomous`, `m0609_tool_sorter_handover`
+- `tool_sorter_cleanup`, `tool_sorter_handover`
   - 공구 정리/전달 구현체
 
 ## 파일별 현재 사용 여부

@@ -31,9 +31,9 @@ flowchart LR
     subgraph ROS["ROS2 Control"]
         direction TB
         Cmd["robot_command_server"]
-        PC["pointcloud<br/>pipeline + comparison"]
+        PC["inspection_3d<br/>pipeline + comparison"]
         Sorter["tool_sorter_stack"]
-        Plug["m0609_plug_insert"]
+        Plug["outlet_assembly"]
     end
 
     subgraph Bringup["Bringup"]
@@ -85,10 +85,10 @@ flowchart LR
 ```mermaid
 flowchart TD
     A[ROS2 워크스페이스 빌드 및 source] --> B[bringup_camera.launch.py 실행]
-    B --> C[pointcloud launch 실행]
+    B --> C[inspection_3d launch 실행]
     C --> D[tool_sorter_stack launch 실행]
     D --> E[robot_command_server 실행]
-    E --> F[hmi app_node 실행]
+    E --> F[operator_ui app_node 실행]
     F --> G[사용자 음성 또는 웹 명령 입력]
     G --> H{intent 분류}
     H -- BOLT_ASSEMBLE --> I[볼트 검출 및 체결]
@@ -110,7 +110,7 @@ flowchart TD
     A[작업 중 예외 발생] --> B{예외 종류}
     B -- 액션 거절 또는 미지원 intent --> C[즉시 실패 응답]
     B -- 그리퍼 서비스 없음 --> D[onrobot sendCommand 확인]
-    B -- pointcloud timeout --> E[pointcloud 단계 로그 확인]
+    B -- inspection_3d timeout --> E[inspection_3d 단계 로그 확인]
     B -- 공구 전달/정리 실패 --> F[상태 토픽 메시지로 실패 사유 반환]
     B -- 플러그 삽입 실패 --> G[state 포함 메시지 반환]
     B -- 비상정지 --> H[move_stop 호출 및 수동 복구]
@@ -127,13 +127,13 @@ flowchart TD
 
 | 노드 | 실행 위치 | 역할 | 비고 |
 | :--- | :--- | :--- | :--- |
-| `app_node` | `hmi` | Flask HMI, 음성 인식, `robot_command` 액션 클라이언트 | 현재 음성의 기본 진입점 |
+| `app_node` | `operator_ui` | Flask HMI, 음성 인식, `robot_command` 액션 클라이언트 | 현재 음성의 기본 진입점 |
 | `robot_command_server` | `robot_control` | intent를 실제 task 함수로 매핑하는 액션 서버 | 시스템 상위 제어 진입점 |
-| `pointcloud_pipeline` | `pointcloud` | PointCloud2 캡처, ICP 병합, finalize 저장 | 서비스 기반 |
-| `pointcloud_comparison` | `pointcloud` | 기준 PCD와 비교, 결과 생성 | 서비스 기반 |
-| `tool_sorter_perception` | `m0609_tool_sorter_unified` | 공구 인식/Scene 생성 | 공구 전달·정리 공통 |
-| `tool_sorter_autonomous_task_manager` | `m0609_tool_sorter_autonomous` | 공구 정리 시퀀스 수행 | `TOOL_CLEANUP` 구현체 |
-| `tool_sorter_handover_task_manager` | `m0609_tool_sorter_handover` | 공구 전달 시퀀스 수행 | `TOOL_FETCH` 구현체 |
+| `pointcloud_pipeline` | `inspection_3d` | PointCloud2 캡처, ICP 병합, finalize 저장 | 서비스 기반 |
+| `pointcloud_comparison` | `inspection_3d` | 기준 PCD와 비교, 결과 생성 | 서비스 기반 |
+| `tool_sorter_perception` | `tool_sorter_core` | 공구 인식/Scene 생성 | 공구 전달·정리 공통 |
+| `tool_sorter_autonomous_task_manager` | `tool_sorter_cleanup` | 공구 정리 시퀀스 수행 | `TOOL_CLEANUP` 구현체 |
+| `tool_sorter_handover_task_manager` | `tool_sorter_handover` | 공구 전달 시퀀스 수행 | `TOOL_FETCH` 구현체 |
 | `OnRobotRGControllerServer` | `onrobot_rg_control` | RG2 드라이버 서비스 서버 | `/onrobot/sendCommand` 제공 |
 
 #### 액션
@@ -142,7 +142,7 @@ flowchart TD
 | :--- | :--- | :--- | :--- |
 | `/dsr01/robot_command` | `voice_interfaces/action/RobotCommand` | HMI/음성 명령을 실제 로봇 작업으로 변환 | `robot_command_server`가 제공 |
 
-#### pointcloud 서비스
+#### inspection_3d 서비스
 
 | 서비스명 | 타입 | 역할 |
 | :--- | :--- | :--- |
@@ -192,22 +192,22 @@ flowchart TD
 └── src/
     ├── cobot2_ws/
     │   ├── README.md
-    │   ├── hmi/
+    │   ├── operator_ui/
     │   ├── robot_control/
-    │   ├── pointcloud/
+    │   ├── inspection_3d/
     │   ├── od_msg/
     │   ├── voice_interfaces/
-    │   ├── m0609_plug_insert/
-    │   ├── m0609_tool_sorter_unified/
-    │   ├── m0609_tool_sorter_autonomous/
-    │   ├── m0609_tool_sorter_handover/
-    │   ├── rg2/
-    │   │   └── m0609_rg2_bringup/
-    │   └── onrobot-ros2/
-    │       ├── onrobot_rg_control/
-    │       ├── onrobot_rg_msgs/
-    │       ├── onrobot_rg_description/
-    │       └── _onrobot_rg_modbus_tcp/
+    │   ├── outlet_assembly/
+    │   ├── tool_sorter_core/
+    │   ├── tool_sorter_cleanup/
+    │   └── tool_sorter_handover/
+    ├── rg2/
+    │   └── m0609_rg2_bringup/
+    ├── onrobot-ros2/
+    │   ├── onrobot_rg_control/
+    │   ├── onrobot_rg_msgs/
+    │   ├── onrobot_rg_description/
+    │   └── _onrobot_rg_modbus_tcp/
     └── doosan-robot2/
         ├── dsr_bringup2/
         ├── dsr_common2/
@@ -223,17 +223,42 @@ flowchart TD
 
 | 패키지 | 역할 |
 | :--- | :--- |
-| `hmi` | Flask HMI, 통합 음성 인식, 액션 클라이언트 |
+| `operator_ui` | Flask HMI, 통합 음성 인식, 액션 클라이언트 |
 | `robot_control` | 상위 액션 서버, 볼트 체결, 3D 검사 orchestration, 공구 task 중계 |
-| `pointcloud` | 다중 시점 점군 캡처/ICP 병합/비교 |
-| `od_msg` | pointcloud 비교 서비스 타입 |
+| `inspection_3d` | 다중 시점 점군 캡처/ICP 병합/비교 |
+| `od_msg` | inspection_3d 비교 서비스 타입 |
 | `voice_interfaces` | `RobotCommand.action`, `GetKeyword.srv` 정의 |
-| `m0609_plug_insert` | 콘센트/멀티탭 체결 구현체 |
-| `m0609_tool_sorter_unified` | 공구 인식, 공통 task manager, motion 유틸 |
-| `m0609_tool_sorter_autonomous` | 공구 정리 구현체 |
-| `m0609_tool_sorter_handover` | 공구 전달 구현체 |
-| `rg2/m0609_rg2_bringup` | 로봇 + RG2 + RealSense bringup |
-| `onrobot-ros2/*` | OnRobot RG2 드라이버 및 메시지 패키지 |
+| `outlet_assembly` | 콘센트/멀티탭 체결 구현체 |
+| `tool_sorter_core` | 공구 인식, 공통 task manager, motion 유틸 |
+| `tool_sorter_cleanup` | 공구 정리 구현체 |
+| `tool_sorter_handover` | 공구 전달 구현체 |
+| `../rg2/m0609_rg2_bringup` | 로봇 + RG2 + RealSense bringup |
+| `../onrobot-ros2/*` | OnRobot RG2 드라이버 및 메시지 패키지 |
+
+---
+
+## 4.1 외부 의존성
+
+`onrobot-ros2`와 `rg2`는 현재 `src/cobot2_ws` 바깥(`~/cobot_ws/src`)에 두는
+외부 패키지로 관리합니다.  
+따라서 본 저장소는 최종 제출본 기준으로 **OnRobot RG2 드라이버 패키지
+(`onrobot-ros2`)를 포함하지 않을 수 있습니다.**  
+이 경우 아래 패키지는 별도 워크스페이스 또는 외부 저장소에서 설치되어 있어야
+합니다.
+
+- `onrobot_rg_control`
+- `onrobot_rg_msgs`
+- `_onrobot_rg_modbus_tcp`
+
+이 외부 의존성이 없으면 다음 기능은 정상 실행되지 않습니다.
+
+- 볼트 체결
+- 콘센트/멀티탭 체결
+- 공구 가져오기
+- 공구 정리
+- 검사 시작 전 그리퍼 자동 개방
+
+특히 `/onrobot/sendCommand` 서비스가 없으면 RG2 관련 작업은 모두 실패합니다.
 
 ---
 
@@ -241,12 +266,12 @@ flowchart TD
 
 ### 5.1 HMI 환경변수 설정
 
-`hmi app_node`의 음성 기능(wake word, STT, TTS, LLM intent 보조 분류)은
+`operator_ui app_node`의 음성 기능(wake word, STT, TTS, LLM intent 보조 분류)은
 `OPENAI_API_KEY`가 없으면 비활성화됩니다.  
 다음 경로에 `.env` 파일을 두고 키를 설정해야 합니다.
 
 ```text
-~/cobot_ws/src/cobot2_ws/hmi/resource/.env
+~/cobot_ws/src/cobot2_ws/operator_ui/resource/.env
 ```
 
 예시:
@@ -259,7 +284,7 @@ OPENAI_API_KEY=sk-...
 
 - `.env`는 Git에 올리지 않습니다.
 - 키가 비어 있으면 HMI 웹 서버는 떠도 음성 엔진은 시작되지 않습니다.
-- `.env`를 수정한 뒤에는 `ros2 run hmi app_node`를 다시 실행해야 합니다.
+- `.env`를 수정한 뒤에는 `ros2 run operator_ui app_node`를 다시 실행해야 합니다.
 
 ### 5.2 실사용 실행 순서
 
@@ -275,7 +300,8 @@ OPENAI_API_KEY=sk-...
    OnRobot RG2 서비스 서버(`/onrobot/sendCommand`)를 활성화합니다.
 
 4. 검사/체결/HMI 등 나머지 작업 노드
-   pointcloud, tool sorter, robot_command_server, hmi를 목적에 맞게 실행합니다.
+   inspection_3d, tool sorter, robot_command_server, operator_ui를 목적에 맞게
+   실행합니다.
 
 예시 명령:
 
@@ -286,24 +312,24 @@ source ~/cobot_ws/install/setup.bash
 ros2 launch dsr_bringup2 dsr_bringup2_rviz.launch.py mode:=real host:=192.168.1.100 port:=12345 model:=m0609
 ros2 launch realsense2_camera rs_align_depth_launch.py depth_module.depth_profile:=848x480x30 rgb_camera.color_profile:=1280x720x30 initial_reset:=true align_depth.enable:=true enable_rgbd:=true pointcloud.enable:=true
 ros2 launch onrobot_rg_control bringup.launch.py
-ros2 launch pointcloud pipeline_with_comparison.launch.py
+ros2 launch inspection_3d pipeline_with_comparison.launch.py
 ros2 launch robot_control tool_sorter_stack.launch.py
 ros2 run robot_control robot_command_server
-ros2 run hmi app_node
+ros2 run operator_ui app_node
 ```
 
 ### 5.3 기능별 필요한 구성
 
 | 기능 | 필요한 구성 |
 | :--- | :--- |
-| 볼트 체결 | `roboton` + `realsense` + `gripper 드라이버` + `robot_command_server` + `hmi` |
-| 콘센트/멀티탭 체결 | `roboton` + `realsense` + `gripper 드라이버` + `robot_command_server` + `hmi` |
-| 볼트/멀티탭 3D 검사 | 위 구성 + `pointcloud` |
+| 볼트 체결 | `roboton` + `realsense` + `gripper 드라이버` + `robot_command_server` + `operator_ui` |
+| 콘센트/멀티탭 체결 | `roboton` + `realsense` + `gripper 드라이버` + `robot_command_server` + `operator_ui` |
+| 볼트/멀티탭 3D 검사 | 위 구성 + `inspection_3d` |
 | 공구 가져오기/정리 | 위 구성 + `tool_sorter_stack` |
 
 ### 5.4 레거시 음성 경로
 
-현재는 `hmi app_node`가 음성 인식까지 포함하므로 필수가 아니다.  
+현재는 `operator_ui app_node`가 음성 인식까지 포함하므로 필수가 아니다.  
 다만 과거 `voice_processing/get_keyword_node.py` 기반 경로를 유지해야 하면 아래 launch를 쓸 수 있다.
 
 ```bash
@@ -322,8 +348,8 @@ ros2 launch robot_control voice_command_stack.launch.py
 | 사용자 명령 | intent | 실제 구현체 |
 | :--- | :--- | :--- |
 | `볼트 체결해줘` | `BOLT_ASSEMBLE` | `robot_control/bolt_assemble_task.py` |
-| `콘센트 체결해줘` | `OUTLET_ASSEMBLE` | `m0609_plug_insert/plug_insert_task.py` |
-| `멀티탭 체결해줘` | `OUTLET_ASSEMBLE` | `m0609_plug_insert/plug_insert_task.py` |
+| `콘센트 체결해줘` | `OUTLET_ASSEMBLE` | `outlet_assembly/outlet_assembly/plug_insert_task.py` |
+| `멀티탭 체결해줘` | `OUTLET_ASSEMBLE` | `outlet_assembly/outlet_assembly/plug_insert_task.py` |
 | `볼트 검사해줘` | `INSPECT_FASTEN` | `robot_control/pointcloud_inspector_task.py` |
 | `멀티탭 검사해줘` | `CONNECTOR_INSPECT` | `robot_control/pointcloud_inspector_task.py` |
 | `망치 가져와줘` | `TOOL_FETCH` | `robot_control/tool_handover_task.py` |
@@ -333,7 +359,7 @@ ros2 launch robot_control voice_command_stack.launch.py
 
 ## 7. HMI 및 음성 구조
 
-현재 `hmi/app_v5.py`는 다음 역할을 한 프로세스에서 함께 수행합니다.
+현재 `operator_ui/app_v5.py`는 다음 역할을 한 프로세스에서 함께 수행합니다.
 
 - Flask 웹 서버
 - ROS2 브리지 노드
@@ -341,7 +367,7 @@ ros2 launch robot_control voice_command_stack.launch.py
 - OpenAI Whisper 기반 STT
 - OpenAI TTS 기반 안내 음성
 - `robot_command_server` 액션 호출
-- pointcloud 결과 파일 조회
+- inspection_3d 결과 파일 조회
 
 음성 처리 흐름:
 
@@ -358,7 +384,7 @@ ros2 launch robot_control voice_command_stack.launch.py
 현재 3D 검사 결과는 HMI가 바로 읽을 수 있게 다음 위치에 저장됩니다.
 
 ```text
-src/cobot2_ws/hmi/pointclouds/
+src/cobot2_ws/operator_ui/pointclouds/
 ├── bolt/
 │   ├── references/
 │   └── captures/
@@ -372,7 +398,7 @@ src/cobot2_ws/hmi/pointclouds/
 
 기준 PCD:
 
-- `pointcloud/resource/good_bolt.pcd`
-- `pointcloud/resource/good_multitap.pcd`
+- `inspection_3d/resource/good_bolt.pcd`
+- `inspection_3d/resource/good_multitap.pcd`
 
 ---

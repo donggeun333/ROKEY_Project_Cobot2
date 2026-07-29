@@ -17,7 +17,9 @@
   <depend>std_srvs</depend>
   <depend>tf2_ros</depend>
   <depend>od_msg</depend>
+  <depend>operator_ui</depend>
   <depend>voice_interfaces</depend>
+  <exec_depend>inspection_3d</exec_depend>
 
   <!-- 볼트 체결의 그리퍼 명령. 직접 Modbus 대신 onrobot_rg_control 드라이버의
        /onrobot/sendCommand를 쓴다. -->
@@ -25,10 +27,10 @@
 
   <!-- 공구 정리/전달. tool_handover_task가 tool_request의 공구명 정규화를
        그대로 쓰므로 handover는 exec가 아니라 build 시점부터 필요하다. -->
-  <depend>m0609_tool_sorter_unified</depend>
-  <depend>m0609_tool_sorter_handover</depend>
-  <depend>m0609_plug_insert</depend>
-  <exec_depend>m0609_tool_sorter_autonomous</exec_depend>
+  <depend>tool_sorter_core</depend>
+  <depend>tool_sorter_handover</depend>
+  <depend>outlet_assembly</depend>
+  <exec_depend>tool_sorter_cleanup</exec_depend>
   <exec_depend>python3-scipy</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
