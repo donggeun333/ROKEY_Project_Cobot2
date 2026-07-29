@@ -10,7 +10,6 @@ cv2로 추출한다.
 """
 
 import math
-import threading
 import time
 from collections import deque
 from pathlib import Path
@@ -47,10 +46,6 @@ HOME_POS = [0.0, 0.0, 90.0, 0.0, 90.0, 0.0]
 
 # ---------------------------------------------------------------------------
 # 인식
-#
-# 공구 정리/전달과 같은 13클래스 모델을 그대로 쓴다. 이 task가 보는 클래스는
-# `multi`(멀티탭)와 `plug` 둘뿐이고, 구멍은 multi 마스크에서 cv2로 뽑는다.
-# 모델을 한 벌로 두면 추론이 중복되지 않고 라벨 세대도 갈라지지 않는다.
 # ---------------------------------------------------------------------------
 _UNIFIED_SHARE = Path(get_package_share_directory("m0609_tool_sorter_unified"))
 INTEGRATED_MODEL_PATH = str(_UNIFIED_SHARE / "models" / "best.pt")
@@ -65,11 +60,6 @@ TARGET_FRAMES_FOR_AVG = 8
 
 # ---------------------------------------------------------------------------
 # 그리퍼
-#
-# 직접 Modbus(`onrobot.RG`)를 쓰지 않는다. Compute Box 소켓의 소유자를
-# `onrobot_rg_control` 드라이버 하나로 묶어야 볼트 체결·공구 정리/전달과 한
-# 세션에서 섞어 쓸 수 있다. 자세한 배경은
-# `robot_control/robot_control/gripper_service.py` 주석을 본다.
 # ---------------------------------------------------------------------------
 GRIPPER_SERVICE_NAME = "/onrobot/sendCommand"
 GRIPPER_SETTLE_SEC = 0.6
@@ -78,47 +68,64 @@ GRIPPER_SERVICE_WAIT_SEC = 5.0
 PLUG_INSERT_TIMEOUT_SEC = 300.0
 
 
-def _start_background_spin(node: Node):
-    """`run_plug_insert` 동안만 노드를 background spin 한다.
+class GripperServiceError(RuntimeError):
+    """그리퍼 서비스가 없거나 명령이 거절/타임아웃 됐을 때 던진다."""
 
-    이 task는 비전 subscription 콜백과 OnRobot 그리퍼 서비스 응답을 모두 같은
-    노드에서 받는다. 단독 실행과 robot_command_server 통합 경로 모두에서 이
-    노드는 별도 executor에 올라가 있지 않으므로, 여기서 spin 스레드를 직접
-    돌려줘야 서비스 응답과 카메라 프레임이 들어온다.
-    """
 
-    stop_event = threading.Event()
+class OnRobotServiceGripper:
+    """RG2를 `/onrobot/sendCommand` 서비스로 동기 제어한다."""
 
-    def worker():
-        while rclpy.ok() and not stop_event.is_set():
-            rclpy.spin_once(node, timeout_sec=0.05)
+    def __init__(self, node: Node, service_name: str, wait_sec: float) -> None:
+        from onrobot_rg_msgs.srv import SetCommand
 
-    thread = threading.Thread(target=worker, daemon=True)
-    thread.start()
-    return stop_event, thread
+        self._node = node
+        self._service_type = SetCommand
+        self._service_name = service_name
+        self._client = node.create_client(SetCommand, service_name)
+        if not self._client.wait_for_service(timeout_sec=float(wait_sec)):
+            raise GripperServiceError(
+                f"그리퍼 서비스를 찾을 수 없습니다: {service_name}"
+            )
+
+    def _send(self, command: str) -> None:
+        request = self._service_type.Request()
+        request.command = command
+        future = self._client.call_async(request)
+        rclpy.spin_until_future_complete(
+            self._node, future, timeout_sec=GRIPPER_SERVICE_WAIT_SEC
+        )
+        if not future.done():
+            future.cancel()
+            raise GripperServiceError(
+                f"그리퍼 명령 '{command}' 응답 시간 초과 "
+                f"({GRIPPER_SERVICE_WAIT_SEC}s)"
+            )
+        response = future.result()
+        if response is None or not response.success:
+            message = "" if response is None else response.message
+            raise GripperServiceError(
+                f"그리퍼 명령 '{command}' 실패: {message}"
+            )
+
+    def open(self) -> None:
+        self._send("o")
+
+    def close(self) -> None:
+        self._send("c")
 
 
 def run_plug_insert(
     node: Node,
-    show_window: bool = False,
+    show_window: bool = True,
     timeout_s: float = PLUG_INSERT_TIMEOUT_SEC,
 ) -> tuple[bool, str]:
-    """플러그 삽입 시퀀스를 끝까지 돌리고 `(성공, 메시지)`를 돌려준다.
-
-    `node`는 호출한 쪽이 소유한다 — 여기서 만들지도 파괴하지도 않는다.
-    """
-    from m0609_tool_sorter_unified.motion import OnRobotGripper
-
     DR_init.__dsr__node = node
     _started_at = time.monotonic()
-    spin_stop, spin_thread = _start_background_spin(node)
-
-    gripper = OnRobotGripper(
+    gripper = OnRobotServiceGripper(
         node,
         service_name=GRIPPER_SERVICE_NAME,
-        settle_s=GRIPPER_SETTLE_SEC,
+        wait_sec=GRIPPER_SERVICE_WAIT_SEC,
     )
-    gripper.wait_ready(GRIPPER_SERVICE_WAIT_SEC)
 
     bridge = CvBridge()
     sensor_data = {
@@ -137,19 +144,18 @@ def run_plug_insert(
         sensor_data['fy'] = msg.k[4]
         sensor_data['cy'] = msg.k[5]
 
-    # Color 영상 압축 해제 처리
     def color_callback(msg):
         try:
             sensor_data['color_img'] = bridge.compressed_imgmsg_to_cv2(msg, desired_encoding='bgr8')
             h, w = sensor_data['color_img'].shape[:2]
             sensor_data['frame_w'] = w
             sensor_data['frame_h'] = h
-        except Exception as e: 
+        except Exception: 
             pass
 
     node.create_subscription(Image, '/camera/camera/aligned_depth_to_color/image_raw', depth_callback, 10)
     node.create_subscription(CameraInfo, '/camera/camera/aligned_depth_to_color/camera_info', camera_info_callback, 10)
-    node.create_subscription(CompressedImage, '/camera/camera/color/image_raw/compressed', color_callback, 10)               # Color는 Compressed 구독
+    node.create_subscription(CompressedImage, '/camera/camera/color/image_raw/compressed', color_callback, 10)
     print("✅ Depth(Raw), Color(Compressed) 영상 및 Camera Info 토픽 구독 시작!")
 
     try:
@@ -158,9 +164,34 @@ def run_plug_insert(
             task_compliance_ctrl, set_desired_force, release_compliance_ctrl,
             DR_FC_MOD_REL, check_motion
         )
-
     except ImportError as e:
         return False, f"DSR_ROBOT2 임포트 실패: {e}"
+
+    # =========================================================================
+    # 🛠️ 안전한 좌표 조회 헬퍼 함수 정의
+    # =========================================================================
+    def get_safe_posx(retries=5, delay=0.1):
+        """IndexError 발생 시 재시도하여 안전하게 현재 직교 좌표를 반환합니다."""
+        for _ in range(retries):
+            try:
+                res = get_current_posx()
+                if res and len(res) > 0 and len(res[0]) >= 3:
+                    return res[0]
+            except IndexError:
+                time.sleep(delay)
+        raise RuntimeError("로봇 직교 좌표(posx) 통신 실패")
+
+    def get_safe_posj(retries=5, delay=0.1):
+        """IndexError 발생 시 재시도하여 안전하게 현재 관절 좌표를 반환합니다."""
+        for _ in range(retries):
+            try:
+                res = get_current_posj()
+                if res and len(res) > 0:
+                    return res
+            except IndexError:
+                time.sleep(delay)
+        raise RuntimeError("로봇 관절 좌표(posj) 통신 실패")
+    # =========================================================================
 
     set_tool("Tool Weight")
     set_tcp("GripperDA_v1")
@@ -196,6 +227,8 @@ def run_plug_insert(
 
     multitap_target_pos = None 
     multitap_depth_mm = None
+    centering_finish_pos = None
+    surface_z = None # 스텝 하강 시 측정된 표면 Z 좌표 보관용
 
     plug_missed_count = 0
     plug_detect_count = 0 
@@ -261,7 +294,6 @@ def run_plug_insert(
                                 pt0, pt1, pt2, pt3 = points[0], points[1], points[2], points[3]
                                 dist01, dist12 = math.dist(pt0, pt1), math.dist(pt1, pt2)
                                 
-                                # 짧은 변 중점 기준 각도 추출
                                 if dist01 < dist12:
                                     m1 = (int((pt0[0] + pt1[0]) / 2), int((pt0[1] + pt1[1]) / 2))
                                     m2 = (int((pt2[0] + pt3[0]) / 2), int((pt2[1] + pt3[1]) / 2))
@@ -287,18 +319,19 @@ def run_plug_insert(
             current_detections = sum(detection_buffer)
 
             # ==================================================
-            # 🤖 [상태 머신 로직 및 상세 로깅]
+            # 🤖 [상태 머신 로직]
             # ==================================================
             current_robot_pos = None
             robot_motion_state = 0 
             
             try:
-                current_robot_pos = get_current_posx()[0]
+                # 메인 루프에서의 기본 좌표 조회
+                res_pos = get_current_posx()
+                if res_pos and len(res_pos) > 0:
+                    current_robot_pos = res_pos[0]
                 robot_motion_state = check_motion()
-
             except Exception:
                 pass
-
 
             if ROBOT_STATE == "INIT_SCAN":
                 print_log("1️⃣ [초기화] 홈 포지션으로 이동합니다.")
@@ -346,7 +379,6 @@ def run_plug_insert(
                     if is_centered or centering_attempt_count >= 5:
                         print_log("멀티탭 중앙 정렬 완료, 정밀 구멍 추출 연산을 시작합니다.", "SUCCESS")
                         
-                        # 🚀 센터링이 완료된 위치를 백업
                         if current_robot_pos is not None:
                             centering_finish_pos = list(current_robot_pos)
                             print_log(f"센터링 완료 위치 백업 [X:{centering_finish_pos[0]:.1f}, Y:{centering_finish_pos[1]:.1f}]", "INFO")
@@ -506,146 +538,153 @@ def run_plug_insert(
                         time.sleep(1.0) 
             
             elif ROBOT_STATE == "PICK_PLUG":
-                    if plug_obb_data is not None:
-                        plug_missed_count = 0 
-                        
-                        err_x = plug_obb_data['cx'] - CENTER_X
-                        err_y = plug_obb_data['cy'] - CENTER_Y
-
-                        is_centered = (abs(err_x) < 15 and abs(err_y) < 15) 
-
-                        if plug_obb_data['is_fully_visible'] and (is_centered or centering_attempt_count >= 8):
-                            plug_detect_count += 1
+                if plug_obb_data is not None:
+                    plug_missed_count = 0 
                     
+                    err_x = plug_obb_data['cx'] - CENTER_X
+                    err_y = plug_obb_data['cy'] - CENTER_Y
 
-                            saved_plug_angle = plug_obb_data['angle']
-                            final_plug_data = plug_obb_data
-                            print_log(f"정밀 행렬 연산 파지 돌입!")
+                    is_centered = (abs(err_x) < 15 and abs(err_y) < 15) 
+
+                    if plug_obb_data['is_fully_visible'] and (is_centered or centering_attempt_count >= 8):
+                        plug_detect_count += 1
+                
+                        saved_plug_angle = plug_obb_data['angle']
+                        final_plug_data = plug_obb_data
+                        print_log(f"정밀 행렬 연산 파지 돌입!")
+                        
+                        try:
+                            FX, FY, CX, CY = sensor_data['fx'], sensor_data['fy'], sensor_data['cx'], sensor_data['cy']
+                            depth_image = sensor_data['depth_img']
+                            if depth_image is None or FX is None or current_robot_pos is None: continue
                             
-                            try:
-                                FX, FY, CX, CY = sensor_data['fx'], sensor_data['fy'], sensor_data['cx'], sensor_data['cy']
-                                depth_image = sensor_data['depth_img']
-                                if depth_image is None or FX is None or current_robot_pos is None: continue
+                            u, v = int(plug_obb_data['cx']), int(plug_obb_data['cy'])
+                            dh, dw = depth_image.shape[:2]
+                            if u < 0 or u >= dw or v < 0 or v >= dh: continue
+
+                            Z_mm = float(depth_image[v, u])
+                            if Z_mm <= 0: continue
+
+                            X_cam = (u - CX) * Z_mm / FX
+                            Y_cam = (v - CY) * Z_mm / FY
+                            P_cam = np.array([X_cam, Y_cam, Z_mm, 1.0])
+
+                            T_base_tcp = posx_to_matrix(current_robot_pos)
+                            P_tcp = np.dot(CAM_TO_TCP_MATRIX, P_cam)
+                            P_base = np.dot(T_base_tcp, P_tcp)
+
+                            target_x = P_base[0]
+                            target_y = P_base[1]
+                            base_z = P_base[2]
+
+                            GRIPPER_OFFSET = 50.0 
+                            target_z = base_z - GRIPPER_OFFSET
                                 
-                                u, v = int(plug_obb_data['cx']), int(plug_obb_data['cy'])
-                                dh, dw = depth_image.shape[:2]
-                                if u < 0 or u >= dw or v < 0 or v >= dh: continue
-
-                                Z_mm = float(depth_image[v, u])
-                                if Z_mm <= 0: continue
-
-                                X_cam = (u - CX) * Z_mm / FX
-                                Y_cam = (v - CY) * Z_mm / FY
-                                P_cam = np.array([X_cam, Y_cam, Z_mm, 1.0])
-
-                                T_base_tcp = posx_to_matrix(current_robot_pos)
-                                P_tcp = np.dot(CAM_TO_TCP_MATRIX, P_cam)
-                                P_base = np.dot(T_base_tcp, P_tcp)
-
-                                target_x = P_base[0]
-                                target_y = P_base[1]
-                                base_z = P_base[2]
-
-                                GRIPPER_OFFSET = 50.0 
-                                target_z = base_z - GRIPPER_OFFSET
-                                  
-                                print(f"👇 행렬 기반 정밀 3D 좌표(X:{target_x:.1f}, Y:{target_y:.1f}, Z:{target_z:.1f})로 하강합니다.")
-                                movel([target_x, target_y, target_z, current_robot_pos[3], current_robot_pos[4], current_robot_pos[5]], v=VELOCITY_F, a=ACC_F)
-                                time.sleep(1.0)
-                                    
-                                gripper.close()
-                                time.sleep(2.0) 
-                                   
-                                lift_z = FIXED_SCAN_Z -30
-                                print_log(f"플러그 파지 완료! 제자리 수직(Z: {lift_z:.1f}mm)으로 들어올립니다.", "ACTION")
-                                   
-                                # 파지 후 다시 위치를 확인해야 하므로 새로 가져옴
-                                grip_finish_pos = get_current_posx()[0]
-                                movel([grip_finish_pos[0], grip_finish_pos[1], lift_z, grip_finish_pos[3], grip_finish_pos[4], grip_finish_pos[5]], v=VELOCITY_F, a=ACC_F)
-                                time.sleep(3.0) 
-
-                                ROBOT_STATE = "INSERT_PLUG"
-                                print_log("체결 전용 모드(INSERT_PLUG)로 전환합니다.", "INFO")
-
-                            except Exception as e:
-                                print_log(f"파지 연산 중 에러: {e}", "ERROR")
-
-                        else:
-                            plug_detect_count = 0 
-                            centering_attempt_count += 1 
-                            if current_robot_pos is not None:
-                                P_GAIN = 0.30 
+                            print(f"👇 행렬 기반 정밀 3D 좌표(X:{target_x:.1f}, Y:{target_y:.1f}, Z:{target_z:.1f})로 하강합니다.")
+                            movel([target_x, target_y, target_z, current_robot_pos[3], current_robot_pos[4], current_robot_pos[5]], v=VELOCITY_F, a=ACC_F)
+                            time.sleep(1.0)
                                 
-                                step_x = err_x * P_GAIN
-                                step_y = err_y * P_GAIN
-                                step_x = max(-30.0, min(30.0, step_x))
-                                step_y = max(-30.0, min(30.0, step_y))
+                            gripper.close()
+                            time.sleep(2.0) 
                                 
-                                move_x = current_robot_pos[0] + step_x
-                                move_y = current_robot_pos[1] - step_y 
+                            lift_z = FIXED_SCAN_Z -30
+                            print_log(f"플러그 파지 완료! 제자리 수직(Z: {lift_z:.1f}mm)으로 들어올립니다.", "ACTION")
                                 
-                                print_log(f"렌즈 중앙 정렬 조준 중... ({centering_attempt_count}/3회)", "INFO")
-                                movel([move_x, move_y, current_robot_pos[2], current_robot_pos[3], current_robot_pos[4], current_robot_pos[5]], v=VELOCITY_S, a=ACC_S)
-                                time.sleep(3.0) 
+                            grip_finish_pos = get_safe_posx()
+                            movel([grip_finish_pos[0], grip_finish_pos[1], lift_z, grip_finish_pos[3], grip_finish_pos[4], grip_finish_pos[5]], v=VELOCITY_F, a=ACC_F)
+                            time.sleep(3.0) 
 
-                                for _ in range(5):
-                                    rclpy.spin_once(node, timeout_sec=0.01)
+                            # 기존 단일 INSERT_PLUG 상태를 INSERT_APPROACH로 전환하여 파편화
+                            ROBOT_STATE = "INSERT_APPROACH"
+                            print_log("체결 준비 모드(INSERT_APPROACH)로 전환합니다.", "INFO")
+
+                        except Exception as e:
+                            print_log(f"파지 연산 중 에러: {e}", "ERROR")
 
                     else:
-                        plug_missed_count += 1
                         plug_detect_count = 0 
-                        if plug_missed_count > 5: 
-                            print_log("⚠️ 시야에서 벗어남! 다시 스캔합니다.", "WARNING")
-                            plug_missed_count = 0 
-                            centering_attempt_count = 0 
-                            ROBOT_STATE = "FIND_PLUG"
-                        else: 
-                            time.sleep(0.1)
+                        centering_attempt_count += 1 
+                        if current_robot_pos is not None:
+                            P_GAIN = 0.30 
+                            
+                            step_x = err_x * P_GAIN
+                            step_y = err_y * P_GAIN
+                            step_x = max(-30.0, min(30.0, step_x))
+                            step_y = max(-30.0, min(30.0, step_y))
+                            
+                            move_x = current_robot_pos[0] + step_x
+                            move_y = current_robot_pos[1] - step_y 
+                            
+                            print_log(f"렌즈 중앙 정렬 조준 중... ({centering_attempt_count}/3회)", "INFO")
+                            movel([move_x, move_y, current_robot_pos[2], current_robot_pos[3], current_robot_pos[4], current_robot_pos[5]], v=VELOCITY_S, a=ACC_S)
+                            time.sleep(3.0) 
 
-            elif ROBOT_STATE == "INSERT_PLUG":    
+                            for _ in range(5):
+                                rclpy.spin_once(node, timeout_sec=0.01)
+
+                else:
+                    plug_missed_count += 1
+                    plug_detect_count = 0 
+                    if plug_missed_count > 5: 
+                        print_log("⚠️ 시야에서 벗어남! 다시 스캔합니다.", "WARNING")
+                        plug_missed_count = 0 
+                        centering_attempt_count = 0 
+                        ROBOT_STATE = "FIND_PLUG"
+                    else: 
+                        time.sleep(0.1)
+
+            # ----------------------------------------------------
+            # 상태 1. INSERT_APPROACH: 상공 이동 및 각도 회전
+            # ----------------------------------------------------
+            elif ROBOT_STATE == "INSERT_APPROACH":    
                 try:
                     if centering_finish_pos is not None:
                         print_log("기억해둔 멀티탭 센터링 상공으로 이동", "ACTION")
-                        ready_insert_pos = get_current_posx()[0]
+                        ready_insert_pos = get_safe_posx()
                         movel([centering_finish_pos[0], centering_finish_pos[1], FIXED_SCAN_Z, ready_insert_pos[3], ready_insert_pos[4], ready_insert_pos[5]], v=VELOCITY_F, a=ACC_F)
+                        time.sleep(1.0)
+
+                        print_log("체결 전 J6 관절 0도 초기화", "ACTION")
+                        current_j = get_safe_posj()
+                        movej([current_j[0], current_j[1], current_j[2], current_j[3], current_j[4], 0.0], v=VELOCITY_F, a=ACC_F)
                         time.sleep(1.0)
                     
                     if saved_hole_angle is not None:
-                            print_log("멀티탭 구멍 각도에 맞춰 제자리 회전", "ACTION")
-                            
-                            # 카메라 각도에 맞춰 로봇 6번 조인트가 회전해야 할 목표 각도 계산
-                            target_j6 = (saved_plug_angle - saved_hole_angle)
-                            
-                            # 회전 각도 정규화 (-180도 ~ 180도)
-                            while target_j6 > 180.0: target_j6 -= 360.0
-                            while target_j6 < -180.0: target_j6 += 360.0
+                        print_log("멀티탭 구멍 각도에 맞춰 제자리 회전", "ACTION")
+                        
+                        target_j6 = (saved_plug_angle - saved_hole_angle)
+                        while target_j6 > 180.0: target_j6 -= 360.0
+                        while target_j6 < -180.0: target_j6 += 360.0
 
-                            # 직교 좌표(posx) 대신 관절 각도(posj)를 가져옵니다
-                            start_rotate_pos = get_current_posj()
-                            
-                            # 1~5번 관절은 현재 각도를 그대로 유지하고, 6번 관절(J6)만 목표 각도로 단독 회전!
-                            movej([start_rotate_pos[0], start_rotate_pos[1], start_rotate_pos[2], start_rotate_pos[3], start_rotate_pos[4], start_rotate_pos[5]+target_j6], v=VELOCITY_F, a=ACC_F)
-                            time.sleep(1.0)
+                        start_rotate_pos = get_safe_posj()
+                        movej([start_rotate_pos[0], start_rotate_pos[1], start_rotate_pos[2], start_rotate_pos[3], start_rotate_pos[4], start_rotate_pos[5]+target_j6], v=VELOCITY_F, a=ACC_F)
+                        time.sleep(1.0)
 
                     if multitap_target_pos is not None:
-                                            print_log("멀티탭 구멍 중점 좌표의 상공으로 이동", "ACTION")
-                                            # 목표 지점으로 이동, 회전(Rx,Ry,Rz)은 구멍 계산 당시 각도(hole_calc_pos) 사용
-                                            start_insert_pos = get_current_posx()[0]
-                                            movel([multitap_target_pos[0], multitap_target_pos[1], multitap_target_pos[2]+50, start_insert_pos[3], start_insert_pos[4], start_insert_pos[5]], v=VELOCITY_F, a=ACC_F)
-                                            time.sleep(1.0)
-
+                        print_log("멀티탭 구멍 중점 좌표의 상공으로 이동", "ACTION")
+                        start_insert_pos = get_safe_posx()
+                        movel([multitap_target_pos[0], multitap_target_pos[1], multitap_target_pos[2]+50, start_insert_pos[3], start_insert_pos[4], start_insert_pos[5]], v=VELOCITY_F, a=ACC_F)
+                        time.sleep(1.0)
                     else:
                         print_log("경고: 멀티탭 백업본 누락!", "WARNING")
                         
-                    # ----------------------------------------------------
-                    # 1. 일단 살짝 눌러서 실제 멀티탭 표면(바닥) 높이 측정
-                    # ----------------------------------------------------
+                    ROBOT_STATE = "INSERT_MEASURE"
+                
+                except Exception as e:
+                    print_log(f"❌ 체결 접근(APPROACH) 동작 중 에러 발생: {e}", "ERROR")
+                    time.sleep(0.5)
+
+            # ----------------------------------------------------
+            # 상태 2. INSERT_MEASURE: 표면 높이 스텝 하강 측정
+            # ----------------------------------------------------
+            elif ROBOT_STATE == "INSERT_MEASURE":
+                try:
                     print_log("표면 높이 측정을 위해 스텝 하강을 시작합니다...", "INFO")
                     task_compliance_ctrl([2000, 2000, 2000, 2000, 2000, 2000]) 
                     time.sleep(0.5)
                     set_desired_force([0, 0, -10, 0, 0, 0], [0, 0, 1, 0, 0, 0], DR_FC_MOD_REL) 
 
-                    while_insert_pos = get_current_posx()[0]
+                    while_insert_pos = get_safe_posx()
                     prev_z = while_insert_pos[2]
                     surface_z = prev_z 
                     insert_success = False
@@ -655,9 +694,9 @@ def run_plug_insert(
                         movel([while_insert_pos[0], while_insert_pos[1], next_z, while_insert_pos[3], while_insert_pos[4], while_insert_pos[5]], v=VELOCITY_S, a=ACC_S)
                         
                         time.sleep(1.0)
-                        current_z = get_current_posx()[0][2]
+                        current_z = get_safe_posx()[2]
                         
-                        # Z축 위치 변화가 0.8mm 이하
+                        # Z축 위치 변화가 0.5mm 이하면 표면에 닿았다고 판단
                         if abs(prev_z - current_z) < 0.5:
                             surface_z = current_z
                             expected_surface_z = multitap_target_pos[2]
@@ -665,61 +704,82 @@ def run_plug_insert(
                             if surface_z < (expected_surface_z):
                                 print_log(f"한 번에 구멍에 꽂혔습니다!", "SUCCESS")
                                 insert_success = True
-
                             else:
                                 print_log(f"멀티탭 표면 접촉 확인 (Z: {surface_z:.1f}mm).", "SUCCESS")
-                            
                             break
                             
                         prev_z = current_z
                    
-                    # ----------------------------------------------------
-                    # 2. 한 번에 안 꽂혔을 때만 탐색 진행
-                    # ----------------------------------------------------
-                    if not insert_success:
-                        # 힘 제어를 풀고 표면에서 10mm 띄워 공중으로 이동
-                        release_compliance_ctrl()
+                    # 한 번에 꽂혔을 경우의 처리
+                    if insert_success:
+                        try: release_compliance_ctrl() 
+                        except: pass
                         
-                        detect_pos = get_current_posx()[0]
-                        movel([detect_pos[0], detect_pos[1], surface_z + 10.0, detect_pos[3], detect_pos[4], detect_pos[5]], v=VELOCITY_F, a=ACC_F)
+                        print_log("완벽하게 체결을 완료했습니다.", "SUCCESS")
+                        gripper.open()
                         time.sleep(1.0)
                         
-                        print_log("탐색을 시작합니다!", "ACTION")
-                        search_offsets = [
-                            (0.0, 0.0),   
-                            (2.0, 0.0), (-2.0, 0.0), (0.0, 2.0), (0.0, -2.0), 
-                            (3.0, 0.0), (-3.0, 0.0), (0.0, 3.0), (0.0, -3.0), 
-                            (4.0, 0.0), (-4.0, 0.0), (0.0, 4.0), (0.0, -4.0)  
-                        ]
+                        cur_pos = get_safe_posx()
+                        movel([cur_pos[0], cur_pos[1], cur_pos[2] + 50.0, cur_pos[3], cur_pos[4], cur_pos[5]], v=VELOCITY_S, a=ACC_S)
+                        time.sleep(1.0)
+                        ROBOT_STATE = "DONE_ALL"
+                    else:
+                        # 한 번에 꽂히지 않았다면 다음 탐색 상태로 넘어갑니다.
+                        ROBOT_STATE = "INSERT_SEARCH"
+
+                except Exception as e:
+                    print_log(f"❌ 체결 측정(MEASURE) 동작 중 에러 발생: {e}", "ERROR")
+                    time.sleep(0.5)
+
+            # ----------------------------------------------------
+            # 상태 3. INSERT_SEARCH: 미세 이동(Offset) 탐색 
+            # ----------------------------------------------------
+            elif ROBOT_STATE == "INSERT_SEARCH":
+                try:
+                    release_compliance_ctrl()
+                    
+                    detect_pos = get_safe_posx()
+                    # 이전 상태에서 구한 surface_z 활용
+                    movel([detect_pos[0], detect_pos[1], surface_z + 10.0, detect_pos[3], detect_pos[4], detect_pos[5]], v=VELOCITY_F, a=ACC_F)
+                    time.sleep(1.0)
+                    
+                    print_log("탐색을 시작합니다!", "ACTION")
+                    search_offsets = [
+                        (0.0, 0.0),   
+                        (2.0, 0.0), (-2.0, 0.0), (0.0, 2.0), (0.0, -2.0), 
+                        (3.0, 0.0), (-3.0, 0.0), (0.0, 3.0), (0.0, -3.0), 
+                        (4.0, 0.0), (-4.0, 0.0), (0.0, 4.0), (0.0, -4.0)  
+                    ]
+                    
+                    center_x = detect_pos[0]
+                    center_y = detect_pos[1]
+                    insert_success = False
+
+                    for offset_x, offset_y in search_offsets:
+                        next_x = center_x - offset_x
+                        next_y = center_y + offset_y
                         
-                        center_x = detect_pos[0]
-                        center_y = detect_pos[1]
+                        movel([next_x, next_y, surface_z + 10.0, detect_pos[3], detect_pos[4], detect_pos[5]], v=VELOCITY_S, a=ACC_S)
+                        time.sleep(0.5)
 
-                        for offset_x, offset_y in search_offsets:
-                            next_x = center_x - offset_x
-                            next_y = center_y + offset_y
-                            
-                            movel([next_x, next_y, surface_z + 10.0, detect_pos[3], detect_pos[4], detect_pos[5]], v=VELOCITY_S, a=ACC_S)
-                            time.sleep(0.5)
+                        task_compliance_ctrl([1000, 1000, 1000, 1000, 1000, 1000]) 
+                        time.sleep(0.5)
+                        set_desired_force([0, 0, -20, 0, 0, 0], [0, 0, 1, 0, 0, 0], DR_FC_MOD_REL)
+                        
+                        movel([next_x, next_y, surface_z - 10.0, detect_pos[3], detect_pos[4], detect_pos[5]], v=VELOCITY_S, a=ACC_S)
+                        time.sleep(1.0) 
+                        
+                        current_z = get_safe_posx()[2]
+                        if current_z < surface_z:
+                            print_log(f"✨ 쏙 들어갔습니다! 구멍 일치 확인 (하강량: {surface_z - current_z:.1f}mm)", "SUCCESS")
+                            insert_success = True
+                            gripper.open()
+                            break
 
-                            task_compliance_ctrl([1000, 1000, 1000, 1000, 1000, 1000]) 
-                            time.sleep(0.5)
-                            set_desired_force([0, 0, -20, 0, 0, 0], [0, 0, 1, 0, 0, 0], DR_FC_MOD_REL)
-                            
-                            movel([next_x, next_y, surface_z - 10.0, detect_pos[3], detect_pos[4], detect_pos[5]], v=VELOCITY_S, a=ACC_S)
-                            time.sleep(1.0) 
-                            
-                            current_z = get_current_posx()[0][2]
-                            if current_z < surface_z:
-                                print_log(f"✨ 쏙 들어갔습니다! 구멍 일치 확인 (하강량: {surface_z - current_z:.1f}mm)", "SUCCESS")
-                                insert_success = True
-                                gripper.open()
-                                break
-
-                            release_compliance_ctrl()
-                            
-                            movel([next_x, next_y, surface_z + 10.0, detect_pos[3], detect_pos[4], detect_pos[5]], v=VELOCITY_S, a=ACC_S)
-                            time.sleep(0.5)
+                        release_compliance_ctrl()
+                        
+                        movel([next_x, next_y, surface_z + 10.0, detect_pos[3], detect_pos[4], detect_pos[5]], v=VELOCITY_S, a=ACC_S)
+                        time.sleep(0.5)
 
                     try:
                         release_compliance_ctrl() 
@@ -731,7 +791,7 @@ def run_plug_insert(
                         gripper.open()
                         time.sleep(1.0)
                         
-                        cur_pos = get_current_posx()[0]
+                        cur_pos = get_safe_posx()
                         movel([cur_pos[0], cur_pos[1], cur_pos[2] + 50.0, cur_pos[3], cur_pos[4], cur_pos[5]], v=VELOCITY_S, a=ACC_S)
                         time.sleep(1.0)
                     else:
@@ -740,7 +800,7 @@ def run_plug_insert(
                     ROBOT_STATE = "DONE_ALL"
 
                 except Exception as e:
-                    print_log(f"❌ 체결 동작 중 에러 발생: {e}", "ERROR")
+                    print_log(f"❌ 체결 탐색(SEARCH) 동작 중 에러 발생: {e}", "ERROR")
                     time.sleep(0.5)
 
             elif ROBOT_STATE == "DONE_ALL":
@@ -785,12 +845,9 @@ def run_plug_insert(
                 if cv2.waitKey(1) & 0xFF == 27:
                     return False, "사용자가 ESC로 중단했습니다"
 
-
-    except Exception as error:      # 루프 밖으로 샌 예외는 사유를 담아 돌려준다
+    except Exception as error:
         return False, f"플러그 삽입 중 예외: {error}"
     finally:
-        spin_stop.set()
-        spin_thread.join(timeout=1.0)
         if show_window:
             cv2.destroyAllWindows()
 

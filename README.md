@@ -239,29 +239,69 @@ flowchart TD
 
 ## 5. 실행 방법
 
-### 5.1 실사용 최소 실행
+### 5.1 HMI 환경변수 설정
+
+`hmi app_node`의 음성 기능(wake word, STT, TTS, LLM intent 보조 분류)은
+`OPENAI_API_KEY`가 없으면 비활성화됩니다.  
+다음 경로에 `.env` 파일을 두고 키를 설정해야 합니다.
+
+```text
+~/cobot_ws/src/cobot2_ws/hmi/resource/.env
+```
+
+예시:
+
+```env
+OPENAI_API_KEY=sk-...
+```
+
+주의:
+
+- `.env`는 Git에 올리지 않습니다.
+- 키가 비어 있으면 HMI 웹 서버는 떠도 음성 엔진은 시작되지 않습니다.
+- `.env`를 수정한 뒤에는 `ros2 run hmi app_node`를 다시 실행해야 합니다.
+
+### 5.2 실사용 실행 순서
+
+현장에서는 보통 아래 순서로 띄웁니다.
+
+1. `roboton`
+   Doosan 로봇 bringup 및 기본 TF 트리를 활성화합니다.
+
+2. `realsense`
+   RealSense 카메라 드라이버와 RGB/depth 토픽을 활성화합니다.
+
+3. `gripper 드라이버`
+   OnRobot RG2 서비스 서버(`/onrobot/sendCommand`)를 활성화합니다.
+
+4. 검사/체결/HMI 등 나머지 작업 노드
+   pointcloud, tool sorter, robot_command_server, hmi를 목적에 맞게 실행합니다.
+
+예시 명령:
 
 ```bash
 source /opt/ros/humble/setup.bash
 source ~/cobot_ws/install/setup.bash
 
-ros2 launch m0609_rg2_bringup bringup_camera.launch.py mode:=real host:=<ROBOT_IP>
+ros2 launch dsr_bringup2 dsr_bringup2_rviz.launch.py mode:=real host:=192.168.1.100 port:=12345 model:=m0609
+ros2 launch realsense2_camera rs_align_depth_launch.py depth_module.depth_profile:=848x480x30 rgb_camera.color_profile:=1280x720x30 initial_reset:=true align_depth.enable:=true enable_rgbd:=true pointcloud.enable:=true
+ros2 launch onrobot_rg_control bringup.launch.py
 ros2 launch pointcloud pipeline_with_comparison.launch.py
 ros2 launch robot_control tool_sorter_stack.launch.py
 ros2 run robot_control robot_command_server
 ros2 run hmi app_node
 ```
 
-### 5.2 기능별 필요한 구성
+### 5.3 기능별 필요한 구성
 
 | 기능 | 필요한 구성 |
 | :--- | :--- |
-| 볼트 체결 | `bringup_camera` + `robot_command_server` + `hmi` |
-| 콘센트/멀티탭 체결 | `bringup_camera` + `robot_command_server` + `hmi` |
+| 볼트 체결 | `roboton` + `realsense` + `gripper 드라이버` + `robot_command_server` + `hmi` |
+| 콘센트/멀티탭 체결 | `roboton` + `realsense` + `gripper 드라이버` + `robot_command_server` + `hmi` |
 | 볼트/멀티탭 3D 검사 | 위 구성 + `pointcloud` |
 | 공구 가져오기/정리 | 위 구성 + `tool_sorter_stack` |
 
-### 5.3 레거시 음성 경로
+### 5.4 레거시 음성 경로
 
 현재는 `hmi app_node`가 음성 인식까지 포함하므로 필수가 아니다.  
 다만 과거 `voice_processing/get_keyword_node.py` 기반 경로를 유지해야 하면 아래 launch를 쓸 수 있다.
